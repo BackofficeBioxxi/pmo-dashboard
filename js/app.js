@@ -24,12 +24,12 @@ const state = {
   reportDestinatarios: [], // destinatários escolhidos pro Report do CEO: [{email, nome, stakeholder_id|null}]
 };
 
-const STATUS_PROJETO = ["planejado", "em_andamento", "pausado", "concluido", "cancelado"];
+const STATUS_PROJETO = ["iniciacao", "planejado", "em_andamento", "pausado", "concluido", "cancelado"];
 const STATUS_ENTREGA = ["pendente", "em_andamento", "concluido", "cancelado"];
 const STATUS_TAREFA = ["backlog", "todo", "em_andamento", "em_revisao", "concluido"];
 const PRIORIDADES = ["baixa", "media", "alta", "critica"];
 const LABEL = {
-  planejado: "Planejado", em_andamento: "Em andamento", pausado: "Pausado", concluido: "Concluído", cancelado: "Cancelado",
+  iniciacao: "Iniciação", planejado: "Planejado", em_andamento: "Em andamento", pausado: "Pausado", concluido: "Concluído", cancelado: "Cancelado",
   pendente: "Pendente", backlog: "Backlog", todo: "A fazer", em_revisao: "Em revisão",
   baixa: "Baixa", media: "Média", alta: "Alta", critica: "Crítica",
   atrasado: "Atrasado", em_risco: "Em risco", no_prazo: "No prazo",
@@ -345,7 +345,7 @@ async function loadVisaoGeral() {
       type: "bar",
       data: {
         labels: STATUS_PROJETO.map(label),
-        datasets: [{ data: STATUS_PROJETO.map((s) => contagem[s]), backgroundColor: ["#8b8fb8", "#34e9ff", "#ffd23e", "#3ef7a6", "#ff5c72"], borderRadius: 6 }],
+        datasets: [{ data: STATUS_PROJETO.map((s) => contagem[s]), backgroundColor: ["#a855f7", "#8b8fb8", "#34e9ff", "#ffd23e", "#3ef7a6", "#ff5c72"], borderRadius: 6 }],
       },
       options: { plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: corTexto } }, y: { ticks: { color: corTexto, precision: 0 }, grid: { color: corGrade } } } },
     });
@@ -422,7 +422,7 @@ function openProjetoForm(projeto) {
   const fields = [
     { name: "nome", label: "Nome do projeto", type: "text", required: true },
     { name: "descricao", label: "Descrição", type: "textarea" },
-    { name: "status", label: "Status", type: "select", half: true, options: STATUS_PROJETO.map((s) => ({ value: s, label: label(s) })) },
+    { name: "status", label: "Status", type: "select", half: true, default: "iniciacao", options: STATUS_PROJETO.map((s) => ({ value: s, label: label(s) })) },
     { name: "prioridade", label: "Prioridade", type: "select", half: true, options: PRIORIDADES.map((s) => ({ value: s, label: label(s) })) },
     { name: "data_inicio", label: "Início", type: "date", half: true },
     { name: "data_fim_prevista", label: "Prazo final previsto", type: "date", half: true },
@@ -1014,13 +1014,29 @@ async function renderStakeholdersTable() {
   const tbody = document.querySelector("#table-stakeholders tbody");
   tbody.innerHTML = data.length ? data.map((s) => `
     <tr data-id="${s.id}">
-      <td>${esc(s.nome)}</td><td>${esc(s.email)}</td><td>${esc(projetoNome(s.projeto_id))}</td>
+      <td>${esc(s.nome)}</td>
+      <td>
+        <span>${esc(s.email)}</span>
+        <button class="btn btn-ghost btn-sm" style="padding:2px 8px;margin-left:6px;" data-action="copiar-email-stakeholder" data-email="${esc(s.email)}" title="Copiar e-mail">📧</button>
+      </td>
+      <td>${esc(projetoNome(s.projeto_id))}</td>
       <td>${esc(s.cargo || "-")}</td>
       <td class="small" style="max-width:260px;white-space:normal;" title="${esc(s.observacoes || "")}">${esc(s.observacoes || "-")}</td>
       <td>${s.receber_digest_diario ? "Sim" : "Não"}</td>
       <td class="small muted">clique para editar</td>
     </tr>`).join("") : `<tr><td colspan="7" class="empty-state">Nenhum stakeholder cadastrado.</td></tr>`;
   tbody.querySelectorAll("tr[data-id]").forEach((tr) => (tr.onclick = () => openStakeholderForm(data.find((s) => s.id === tr.dataset.id))));
+  tbody.querySelectorAll('[data-action="copiar-email-stakeholder"]').forEach((btn) => {
+    btn.onclick = async (ev) => {
+      ev.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(btn.dataset.email);
+        toast(`E-mail de ${btn.dataset.email} copiado!`);
+      } catch {
+        toast("Não consegui copiar — selecione o e-mail na tabela e copie manualmente (Ctrl+C).", "err");
+      }
+    };
+  });
 }
 function openStakeholderForm(stakeholder, projetoIdPreset) {
   const fields = [

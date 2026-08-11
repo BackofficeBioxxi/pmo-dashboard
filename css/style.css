@@ -353,6 +353,7 @@ button { font-family: inherit; }
 .badge-no_prazo { color: var(--neon-cyan); background: rgba(52, 233, 255, 0.1); border-color: rgba(52, 233, 255, 0.28); }
 .badge-concluido { color: var(--neon-green); background: rgba(62, 247, 166, 0.1); border-color: rgba(62, 247, 166, 0.28); }
 .badge-cancelado { color: var(--text-3); background: rgba(255,255,255,0.04); }
+.badge-iniciacao { color: var(--neon-purple); background: rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.28); }
 .badge-planejado, .badge-backlog, .badge-todo { color: var(--text-2); }
 .badge-em_andamento { color: var(--neon-cyan); }
 .badge-pausado { color: var(--neon-yellow); }
