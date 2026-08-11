@@ -542,7 +542,7 @@ async function openEntregaForm(entrega, projetoIdPreset) {
       onClick: async () => {
         if (!(await confirmDialog(`Excluir a entrega "${entrega.titulo}"?`))) return;
         await sb.from("entregas").delete().eq("id", entrega.id);
-        closeModal(); toast("Entrega excluída."); renderEntregasTable();
+        closeModal(); toast("Entrega excluída."); renderEntregasTable(); atualizarContadorAlertas();
       },
     } : null,
     onSubmit: async (data) => {
@@ -558,6 +558,7 @@ async function openEntregaForm(entrega, projetoIdPreset) {
       }
       renderEntregasTable();
       if (state.currentTab === "visao-geral") loadVisaoGeral();
+      atualizarContadorAlertas();
     },
   });
 }
@@ -709,6 +710,7 @@ async function sugerirConcluirEntrega(entregaId) {
   toast("Entrega marcada como concluída.");
   if (state.currentTab === "entregas") renderEntregasTable();
   if (state.currentTab === "visao-geral") loadVisaoGeral();
+  atualizarContadorAlertas();
 }
 
 // ==== CALENDÁRIO ====
@@ -1085,44 +1087,71 @@ async function gerarReportCeo() {
       ${d.observacoesDestinatarios.length ? `<h3>Observações do stakeholder</h3>${d.observacoesDestinatarios.map((s) => `<p><b>${esc(s.nome)}:</b> ${esc(s.observacoes)}</p>`).join("")}` : ""}
     </div>`;
   const assunto = `Report executivo — ${d.projeto.nome}`;
-  const { data: cfgRemetente } = await sb.from("configuracoes").select("chave,valor").in("chave", ["remetente_nome", "remetente_email"]);
-  const remetenteNome = cfgRemetente?.find((c) => c.chave === "remetente_nome")?.valor || "(defina em Configurações)";
-  const remetenteEmail = cfgRemetente?.find((c) => c.chave === "remetente_email")?.valor || "(defina em Configurações)";
   openModal({
-    title: "E-mail pronto para o CEO",
+    title: "Report do CEO — copiar e enviar pelo seu Outlook",
     bodyHtml: `
       <div class="card" style="padding:14px 16px;margin-bottom:16px;background:rgba(52,233,255,0.05);">
-        <div class="small"><b>De:</b> ${esc(remetenteNome)} &lt;${esc(remetenteEmail)}&gt;</div>
-        <div class="small" style="margin-top:6px;"><b>Para:</b> ${d.destinatarios.map((x) => esc(x.nome && x.nome !== x.email ? `${x.nome} <${x.email}>` : x.email)).join(", ")}</div>
+        <div class="small"><b>Para:</b> ${d.destinatarios.map((x) => esc(x.nome && x.nome !== x.email ? `${x.nome} <${x.email}>` : x.email)).join(", ")}</div>
       </div>
       <div class="field"><label>Assunto</label><input id="ceo-subject" value="${esc(assunto)}" /></div>
-      <div style="border:1px solid var(--border);border-radius:10px;padding:14px;background:#fff;max-height:340px;overflow:auto;">${html}</div>`,
-    footerHtml: `<button class="btn btn-ghost" id="ceo-cancel">Fechar</button><button class="btn btn-primary" id="ceo-send">Enviar agora</button>`,
+      <p class="small muted" style="margin:-4px 0 12px;">Clique em "Copiar conteúdo", abra um e-mail novo no Outlook pro destinatário acima e cole (Ctrl+V) — a formatação vem junto.</p>
+      <div id="ceo-html-preview" style="border:1px solid var(--border);border-radius:10px;padding:14px;background:#fff;max-height:320px;overflow:auto;">${html}</div>`,
+    footerHtml: `<button class="btn btn-ghost" id="ceo-cancel">Fechar</button><button class="btn btn-ghost" id="ceo-copy-email">📧 Copiar e-mail</button><button class="btn btn-ghost" id="ceo-outlook">✉ Abrir no Outlook</button><button class="btn btn-primary" id="ceo-copy">📋 Copiar conteúdo</button>`,
     onMount: () => {
       document.getElementById("ceo-cancel").onclick = closeModal;
-      document.getElementById("ceo-send").onclick = async () => {
-        setLoading(true);
+      document.getElementById("ceo-copy-email").onclick = async () => {
+        const listaEmails = d.destinatarios.map((x) => x.email).join("; ");
         try {
-          // A senha do e-mail nunca fica no navegador — quem envia de fato é a Edge
-          // Function "enviar-report-ceo" (roda no Supabase, com a credencial guardada lá).
-          // Envia um e-mail por destinatário (ninguém vê o e-mail dos outros).
-          const { data: resultado, error } = await sb.functions.invoke("enviar-report-ceo", {
-            body: {
-              destinatarios: d.destinatarios.map((x) => ({ email: x.email, stakeholder_id: x.stakeholder_id })),
-              subject: document.getElementById("ceo-subject").value, html,
-              projeto_id: d.projeto.id,
-            },
-          });
-          if (error) throw error;
-          if (!resultado?.ok) throw new Error(resultado?.erro || "Falha ao enviar.");
-          const falhas = (resultado.resultados || []).filter((r) => r.status !== "ok");
-          if (falhas.length) toast(`Enviado com ${falhas.length} falha(s) — veja o histórico.`, "err");
-          else toast("Report enviado para todos os destinatários!");
-          closeModal(); renderNotificacoesLog();
-        } catch (e) { toast(e.message, "err"); } finally { setLoading(false); }
+          await navigator.clipboard.writeText(listaEmails);
+          toast(`E-mail${d.destinatarios.length > 1 ? "s" : ""} copiado${d.destinatarios.length > 1 ? "s" : ""}! Cole (Ctrl+V) no campo "Para" do Outlook.`);
+        } catch {
+          toast("Não consegui copiar automaticamente — selecione o texto do destinatário acima e copie (Ctrl+C).", "err");
+        }
+      };
+      document.getElementById("ceo-outlook").onclick = () => {
+        const paraLista = d.destinatarios.map((x) => encodeURIComponent(x.email)).join(",");
+        const assuntoAtual = document.getElementById("ceo-subject").value;
+        window.open(`mailto:${paraLista}?subject=${encodeURIComponent(assuntoAtual)}`, "_blank");
+      };
+      document.getElementById("ceo-copy").onclick = async () => {
+        const ok = await copiarHtmlParaAreaTransferencia(document.getElementById("ceo-html-preview").innerHTML);
+        if (ok) toast("Conteúdo copiado! Cole (Ctrl+V) no corpo do e-mail no Outlook.");
+        else toast("Não consegui copiar automaticamente — selecione o texto acima manualmente e copie (Ctrl+C).", "err");
       };
     },
   });
+}
+// Copia HTML (com formatação) pra área de transferência, com fallback pra
+// navegadores/contextos que não suportam a API moderna de clipboard.
+async function copiarHtmlParaAreaTransferencia(html) {
+  try {
+    const item = new ClipboardItem({
+      "text/html": new Blob([html], { type: "text/html" }),
+      "text/plain": new Blob([new DOMParser().parseFromString(html, "text/html").body.innerText], { type: "text/plain" }),
+    });
+    await navigator.clipboard.write([item]);
+    return true;
+  } catch {
+    try {
+      const temp = document.createElement("div");
+      temp.contentEditable = "true";
+      temp.style.position = "fixed";
+      temp.style.left = "-9999px";
+      temp.innerHTML = html;
+      document.body.appendChild(temp);
+      const range = document.createRange();
+      range.selectNodeContents(temp);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      const ok = document.execCommand("copy");
+      sel.removeAllRanges();
+      document.body.removeChild(temp);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
 }
 async function exportarReportXls() {
   const d = await montarDadosReport();
@@ -1249,6 +1278,83 @@ function wireStaticEvents() {
   document.getElementById("kpi-card-em-risco").onclick = () => abrirModalKpi("Entregas em risco", "entregas", state.vgListas?.emRisco || []);
   document.getElementById("kpi-card-atrasadas").onclick = () => abrirModalKpi("Entregas atrasadas", "entregas", state.vgListas?.atrasadas || []);
   document.getElementById("kpi-card-entregues").onclick = () => abrirModalKpi("Entregas entregues", "entregas", state.vgListas?.entregues || []);
+  document.getElementById("btn-alertas").onclick = abrirModalAlertas;
+  atualizarContadorAlertas();
+}
+// Conta quantas entregas estão atrasadas/em risco (ignorando as silenciadas)
+// e mostra no sininho da barra lateral — visível em qualquer aba.
+async function atualizarContadorAlertas() {
+  const { data, error } = await sb.from("v_entregas").select("id").in("situacao_calculada", ["atrasado", "em_risco"]).eq("silenciar_notificacoes", false);
+  if (error) return;
+  const badgeEl = document.getElementById("alertas-badge");
+  badgeEl.textContent = data.length;
+  badgeEl.classList.toggle("hidden", data.length === 0);
+}
+// Abre a lista de alertas agrupada por stakeholder, com um botão de copiar
+// pronto pra colar num e-mail — ela decide quando e pra quem manda, sem
+// nenhum envio automático por trás.
+async function abrirModalAlertas() {
+  setLoading(true);
+  let entregas, stakeholders;
+  try {
+    const [{ data: e, error: e1 }, { data: s, error: e2 }] = await Promise.all([
+      sb.from("v_entregas").select("*, projetos(nome), perfis:responsavel_id(nome)").in("situacao_calculada", ["atrasado", "em_risco"]).eq("silenciar_notificacoes", false),
+      sb.from("stakeholders").select("*").eq("ativo", true),
+    ]);
+    if (e1) throw e1;
+    if (e2) throw e2;
+    entregas = e; stakeholders = s;
+  } catch (err) { toast(err.message, "err"); setLoading(false); return; }
+  setLoading(false);
+
+  const grupos = stakeholders
+    .map((st) => ({ st, itens: entregas.filter((e) => e.projeto_id === st.projeto_id) }))
+    .filter((g) => g.itens.length);
+
+  const bodyHtml = grupos.length
+    ? grupos.map((g, i) => `
+      <div class="card" style="padding:14px 16px;margin-bottom:12px;">
+        <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div><b>${esc(g.st.nome)}</b> <span class="muted small">${esc(g.st.email)} — ${esc(projetoNome(g.st.projeto_id))}</span></div>
+          <button class="btn btn-primary btn-sm" data-idx="${i}" data-action="copiar-alerta">📋 Copiar resumo</button>
+        </div>
+        <div class="small muted">${g.itens.length} item(ns): ${g.itens.map((e) => `${esc(e.titulo)} (${label(e.situacao_calculada)})`).join(", ")}</div>
+      </div>`).join("")
+    : `<div class="empty-state">Nada atrasado ou em risco agora. 🎉</div>`;
+
+  openModal({
+    title: `Alertas (${entregas.length})`,
+    bodyHtml,
+    footerHtml: `<button class="btn btn-primary" id="alertas-fechar">Fechar</button>`,
+    onMount: () => {
+      document.getElementById("alertas-fechar").onclick = closeModal;
+      document.querySelectorAll('[data-action="copiar-alerta"]').forEach((btn) => {
+        btn.onclick = async () => {
+          const g = grupos[Number(btn.dataset.idx)];
+          const html = montarResumoAlertaHtml(g.st, g.itens);
+          const ok = await copiarHtmlParaAreaTransferencia(html);
+          toast(ok ? `Resumo de ${g.st.nome} copiado! Cole no e-mail e envie pelo Outlook.` : "Não consegui copiar — tente selecionar e copiar manualmente.", ok ? "ok" : "err");
+        };
+      });
+    },
+  });
+}
+function montarResumoAlertaHtml(stakeholder, itens) {
+  const linha = (e) => `<tr>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.projetos?.nome || "-")}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.titulo)}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${fmtDate(e.data_prazo)}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${label(e.situacao_calculada)}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.perfis?.nome || "-")}</td>
+    </tr>`;
+  return `<div style="font-family:sans-serif;color:#222;">
+    <p>Olá, ${esc(stakeholder.nome)},</p>
+    <p>Segue um resumo do que precisa de atenção agora:</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr style="background:#f5f5f5;"><th style="padding:8px;text-align:left;">Projeto</th><th style="padding:8px;text-align:left;">Entrega</th><th style="padding:8px;text-align:left;">Prazo</th><th style="padding:8px;text-align:left;">Situação</th><th style="padding:8px;text-align:left;">Responsável</th></tr>
+      ${itens.map(linha).join("")}
+    </table>
+  </div>`;
 }
 function abrirModalKpi(titulo, tipo, itens) {
   const linhas = tipo === "projetos"

@@ -4,28 +4,26 @@
 // Roda 1x por dia (agendada via supabase/schedule_cron.sql, com pg_cron).
 // Para cada stakeholder ativo com receber_digest_diario=true, monta um resumo
 // das entregas do(s) projeto(s) dele que estão atrasadas, em risco, ou que
-// foram concluídas nas últimas 24h — e envia por e-mail via SMTP direto da
-// sua própria caixa de e-mail (sem depender de nenhum serviço terceiro).
+// foram concluídas nas últimas 24h — e envia por e-mail via Brevo (API
+// gratuita). Precisa ser um serviço assim porque este envio é 100% automático
+// — não dá pra depender de senha de aplicativo de e-mail corporativo, que a
+// política de TI da empresa não libera.
 //
 // Implantar: colar este arquivo no editor de Edge Functions do painel do
 // Supabase (Functions → New Function → nome "notificacoes-diarias") e clicar
 // em Deploy. Não precisa de CLI nem terminal.
 //
 // Secrets necessários (Project Settings → Edge Functions → Secrets):
-//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS  (ver README — Passo 4)
+//   BREVO_API_KEY = chave da API do Brevo
 // (SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já existem automaticamente em
 //  toda Edge Function do projeto — não precisa cadastrar.)
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const SMTP_HOST = Deno.env.get("SMTP_HOST") ?? "";
-const SMTP_PORT = Number(Deno.env.get("SMTP_PORT") ?? "587");
-const SMTP_USER = Deno.env.get("SMTP_USER") ?? "";
-const SMTP_PASS = Deno.env.get("SMTP_PASS") ?? "";
+const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
 
 const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -78,27 +76,24 @@ function montarHtml(nomeStakeholder: string, grupos: Record<string, any[]>, conc
 }
 
 async function enviarEmail(destinatario: { nome: string; email: string }, assunto: string, html: string) {
-  const { data: cfg } = await sb.from("configuracoes").select("chave,valor").eq("chave", "remetente_nome");
-  const remetenteNome = cfg?.[0]?.valor ?? "PMO Dashboard";
+  const { data: cfg } = await sb.from("configuracoes").select("chave,valor").in("chave", ["remetente_nome", "remetente_email"]);
+  const remetenteNome = cfg?.find((c: any) => c.chave === "remetente_nome")?.valor ?? "PMO Dashboard";
+  const remetenteEmail = cfg?.find((c: any) => c.chave === "remetente_email")?.valor ?? "no-reply@example.com";
 
-  const client = new SMTPClient({
-    connection: {
-      hostname: SMTP_HOST,
-      port: SMTP_PORT,
-      tls: SMTP_PORT === 465,
-      auth: { username: SMTP_USER, password: SMTP_PASS },
-    },
-  });
-  try {
-    await client.send({
-      from: `${remetenteNome} <${SMTP_USER}>`,
-      to: destinatario.email,
+  const resp = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      sender: { name: remetenteNome, email: remetenteEmail },
+      to: [{ email: destinatario.email, name: destinatario.nome }],
       subject: assunto,
-      html,
-      content: "Ative HTML para ver esta mensagem.",
-    });
-  } finally {
-    await client.close();
+      htmlContent: html,
+    }),
+  });
+
+  if (!resp.ok) {
+    const texto = await resp.text();
+    throw new Error(`Brevo respondeu ${resp.status}: ${texto}`);
   }
 }
 

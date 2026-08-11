@@ -37,44 +37,27 @@ Leva uns 20–30 minutos, tudo feito clicando e colando — nenhum comando, nenh
 3. Pronto — quando você fizer login no site com esse e-mail/senha pela primeira vez, o sistema te reconhece automaticamente como **administradora** (é o primeiro login do sistema).
 4. Para trocar esse e-mail depois, ou adicionar outros administradores/editores no futuro: repita "Add user" com o novo e-mail e, na aba **Configurações** do site, defina o papel da pessoa como "Admin". Não precisa voltar a este guia para isso.
 
-## Passo 4 — Liberar o envio pelo seu e-mail corporativo (Microsoft 365)
+## Passo 4 — E-mails: sem envio automático (por decisão sua)
 
-Os e-mails automáticos saem direto da sua caixa `@bioxxi.com.br`, via SMTP — sem Brevo, sem terceiros.
+A TI não libera senha de aplicativo/SMTP autenticado pra conta corporativa, e enviar por um serviço terceiro (Brevo) arriscava cair em spam por não ter o domínio `@bioxxi.com.br` autenticado. Por isso, o e-mail funciona assim:
 
-**Ponto de atenção real:** a Microsoft desativou por padrão o "SMTP autenticado" em muitas contas corporativas 365. Pode ser que os passos abaixo funcionem direto, ou pode ser que você precise pedir pra TI habilitar isso pra sua caixa antes. Vamos tentar primeiro; se der erro de autenticação no Passo 8 (teste), esse é o motivo.
+- **Nenhum e-mail sai sozinho.** O sistema te avisa **dentro do próprio painel** (o sininho 🔔 na barra lateral, com um número de quantas entregas estão atrasadas/em risco).
+- Clicando no sininho, você vê a lista agrupada por stakeholder, com um botão **"Copiar resumo"** — copia o texto já formatado, você cola (Ctrl+V) num e-mail novo no seu Outlook e envia você mesma.
+- O mesmo vale pro **Report do CEO** (aba Stakeholders): botão "Copiar conteúdo" em vez de envio automático.
 
-1. Se sua conta tiver autenticação em duas etapas (MFA) ativada — o normal em contas corporativas — você vai precisar gerar uma **senha de aplicativo**: entre em [mysignins.microsoft.com/security-info](https://mysignins.microsoft.com/security-info) → **Add sign-in method → App password**. Copie a senha gerada (só aparece uma vez).
-   - Se essa opção não aparecer, é porque a política da sua empresa não permite — nesse caso, peça pra TI habilitar "senha de aplicativo" ou "SMTP autenticado" pra sua conta.
-2. Guarde estes 4 valores, você vai colar no Passo 5:
-   - **SMTP_HOST**: `smtp.office365.com`
-   - **SMTP_PORT**: `587`
-   - **SMTP_USER**: seu e-mail completo (`julianalobao@bioxxi.com.br` ou o que for)
-   - **SMTP_PASS**: a senha de aplicativo do passo 1 (ou sua senha normal, só se a conta não tiver MFA — menos comum)
+Isso significa: **nenhum passo de configuração de e-mail é necessário.** Pode seguir direto pro Passo 5.
 
 ## Passo 5 — Implantar as Edge Functions
 
-1. No painel do Supabase, vá em **Edge Functions → Deploy a new function**.
-2. Nome: `notificacoes-diarias`. Cole todo o conteúdo do arquivo [`supabase/functions/notificacoes-diarias/index.ts`](supabase/functions/notificacoes-diarias/index.ts) no editor e clique em **Deploy**.
-3. Repita para a segunda função: nome `enviar-report-ceo`, conteúdo do arquivo [`supabase/functions/enviar-report-ceo/index.ts`](supabase/functions/enviar-report-ceo/index.ts).
-4. As duas próximas só são necessárias se for usar a automação de checkpoints via Teams:
-   - Nome `criar-checkpoint`, conteúdo do arquivo [`supabase/functions/criar-checkpoint/index.ts`](supabase/functions/criar-checkpoint/index.ts).
-   - Nome `checkpoint-contexto`, conteúdo do arquivo [`supabase/functions/checkpoint-contexto/index.ts`](supabase/functions/checkpoint-contexto/index.ts).
-5. Vá em **Project Settings → Edge Functions → Secrets** e adicione os 4 valores do Passo 4:
-   - `SMTP_HOST` = `smtp.office365.com`
-   - `SMTP_PORT` = `587`
-   - `SMTP_USER` = seu e-mail `@bioxxi.com.br`
-   - `SMTP_PASS` = a senha de aplicativo
-   - `CHECKPOINT_SECRET` = invente uma senha longa qualquer (só você e a automação do Teams vão usar) — necessário só se for usar a automação de checkpoints.
-   - (não precisa adicionar `SUPABASE_URL` nem `SUPABASE_SERVICE_ROLE_KEY` — o Supabase já coloca isso automaticamente em toda função)
+Só as duas primeiras são realmente necessárias agora (as duas últimas são só se um dia quiser ativar a automação de checkpoints via Teams):
 
-## Passo 6 — Agendar o envio diário automático
-
-1. Copie a URL da função `notificacoes-diarias` (aparece na página da própria função, algo como `https://xxxxx.supabase.co/functions/v1/notificacoes-diarias`).
-2. Volte ao **SQL Editor**, abra o arquivo [`supabase/schedule_cron.sql`](supabase/schedule_cron.sql), cole o conteúdo, e substitua os dois textos marcados como `COLE-AQUI`:
-   - a **service_role key** (pegue em Project Settings → API → Project API keys → `service_role`, clique em "Reveal")
-   - a URL da função que você copiou no passo anterior
-3. Clique em **Run**.
-4. Para confirmar que agendou certo, rode: `select * from cron.job;` — deve aparecer uma linha `pmo-notificacoes-diarias`.
+1. No painel do Supabase, vá em **Edge Functions → Deploy a new function → Via Editor**.
+2. Nome: `notificacoes-diarias` → cole o conteúdo de [`supabase/functions/notificacoes-diarias/index.ts`](supabase/functions/notificacoes-diarias/index.ts) → **Deploy**. *(Essa função não é usada no dia a dia agora — os alertas são todos no painel — mas não tem problema deixá-la implantada, sem uso.)*
+3. Nome: `enviar-report-ceo` → cole o conteúdo de [`supabase/functions/enviar-report-ceo/index.ts`](supabase/functions/enviar-report-ceo/index.ts) → **Deploy**. *(Mesma observação — o app usa o botão "Copiar conteúdo" em vez desta função, mas não tem problema tê-la implantada.)*
+4. Opcional, só se um dia for usar a automação de checkpoints via Teams:
+   - Nome `criar-checkpoint` → conteúdo de [`supabase/functions/criar-checkpoint/index.ts`](supabase/functions/criar-checkpoint/index.ts).
+   - Nome `checkpoint-contexto` → conteúdo de [`supabase/functions/checkpoint-contexto/index.ts`](supabase/functions/checkpoint-contexto/index.ts).
+   - Nesse caso, em **Project Settings → Edge Functions → Secrets**, adicione `CHECKPOINT_SECRET` (invente uma senha longa qualquer).
 
 ## Passo 7 — Publicar a tela (GitHub Pages)
 
@@ -86,10 +69,9 @@ Os e-mails automáticos saem direto da sua caixa `@bioxxi.com.br`, via SMTP — 
 ## Passo 8 — Testar
 
 1. Abra o link do Passo 7, faça login com o e-mail/senha do Passo 3.
-2. Crie um projeto de teste, uma entrega com prazo para os próximos dias, um stakeholder com seu próprio e-mail.
-3. Vá em **Configurações** e confirme que "Dias de antecedência" e o e-mail remetente estão certos.
-4. Para testar o e-mail automático sem esperar o horário agendado: no SQL Editor, rode só o bloco `net.http_post(...)` do arquivo `schedule_cron.sql` (sem o `cron.schedule`) — ele dispara a função na hora. Confira se o e-mail chegou e se apareceu uma linha na aba **Stakeholders → Histórico de notificações**.
-5. Teste o botão **Gerar e-mail** e **Exportar XLS** na aba Stakeholders com o projeto de teste.
+2. Crie um projeto de teste, uma entrega com prazo já vencido (pra virar "Atrasado") e um stakeholder nesse projeto.
+3. Confira o sininho 🔔 na barra lateral — deve mostrar "1". Clique nele, veja o resumo agrupado, e teste o botão "Copiar resumo" (cole em qualquer lugar, tipo o Bloco de Notas, pra confirmar que copiou).
+4. Na aba **Stakeholders**, teste "Gerar Report do CEO" → botão "Copiar conteúdo" (mesma lógica) e "Exportar XLS".
 
 ---
 
