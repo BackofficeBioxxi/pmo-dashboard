@@ -963,13 +963,20 @@ async function loadAnexos() {
   dz.addEventListener("drop", (e) => { dz.classList.remove("drag-over"); handleUpload(e.dataTransfer.files[0]); });
   await renderAnexos();
 }
+// O Supabase Storage não aceita espaço, acento nem vários símbolos na "chave"
+// do arquivo — geramos um nome seguro só pra guardar, mantendo o nome
+// original (com acento e espaço) pra exibir na tela normalmente.
+function nomeArquivoSeguro(nome) {
+  const semAcento = nome.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  return semAcento.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-");
+}
 async function handleUpload(file) {
   if (!file) return;
   const projetoId = document.getElementById("anex-filtro-projeto").value;
   if (!projetoId) return toast("Selecione um projeto antes de enviar o arquivo.", "err");
   setLoading(true);
   try {
-    const path = `projetos/${projetoId}/${Date.now()}-${file.name}`;
+    const path = `projetos/${projetoId}/${Date.now()}-${nomeArquivoSeguro(file.name)}`;
     const { error: upErr } = await sb.storage.from("anexos").upload(path, file);
     if (upErr) throw upErr;
     const { error } = await sb.from("anexos").insert({
