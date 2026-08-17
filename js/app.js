@@ -30,7 +30,7 @@ const STATUS_TAREFA = ["backlog", "todo", "em_andamento", "em_revisao", "conclui
 const PRIORIDADES = ["baixa", "media", "alta", "critica"];
 const LABEL = {
   iniciacao: "Iniciação", planejado: "Planejado", em_andamento: "Em andamento", pausado: "Pausado", concluido: "Concluído", cancelado: "Cancelado",
-  pendente: "Pendente", backlog: "Backlog", todo: "A fazer", em_revisao: "Em revisão",
+  pendente: "Pendente", backlog: "Backlog", todo: "A fazer", em_revisao: "Em revisão", ativo: "Ativo",
   baixa: "Baixa", media: "Média", alta: "Alta", critica: "Crítica",
   atrasado: "Atrasado", em_risco: "Em risco", no_prazo: "No prazo",
   marco: "Marco", entrega: "Entrega",
@@ -613,10 +613,18 @@ async function loadKanban() {
 async function renderKanbanSprints() {
   const projetoId = document.getElementById("kan-filtro-projeto").value;
   const sprintSel = document.getElementById("kan-filtro-sprint");
-  if (!projetoId) { sprintSel.innerHTML = `<option value="">Todas as tarefas</option>`; return renderKanban(); }
+  const listaEl = document.getElementById("kanban-sprints-lista");
+  if (!projetoId) { sprintSel.innerHTML = `<option value="">Todas as tarefas</option>`; listaEl.innerHTML = ""; return renderKanban(); }
   const { data: sprints, error } = await sb.from("sprints").select("*").eq("projeto_id", projetoId).order("data_inicio", { ascending: false });
   if (error) return toast(error.message, "err");
   sprintSel.innerHTML = `<option value="">Todas as tarefas do projeto</option>` + sprints.map((s) => `<option value="${s.id}">${esc(s.nome)} (${label(s.status)})</option>`).join("");
+  listaEl.innerHTML = sprints.map((s) => `
+    <div class="sprint-card" data-id="${s.id}">
+      <div class="sprint-nome">${esc(s.nome)} ${badge(s.status)}</div>
+      <div class="sprint-periodo">${fmtDate(s.data_inicio)} — ${fmtDate(s.data_fim)}</div>
+      <div class="sprint-objetivo">${esc(s.objetivo || "Sem objetivo descrito.")}</div>
+    </div>`).join("");
+  listaEl.querySelectorAll(".sprint-card").forEach((el) => (el.onclick = () => openSprintForm(projetoId, sprints.find((s) => s.id === el.dataset.id))));
   await renderKanban();
 }
 // Renumera a ordem de todos os cartões de uma coluna, na ordem em que estão
@@ -674,7 +682,7 @@ async function renderKanban() {
     });
   });
 }
-function openSprintForm(projetoId) {
+function openSprintForm(projetoId, sprint) {
   if (!projetoId) return toast("Selecione um projeto primeiro.", "err");
   const fields = [
     { name: "nome", label: "Nome da sprint", type: "text", required: true },
@@ -684,22 +692,41 @@ function openSprintForm(projetoId) {
     { name: "status", label: "Status", type: "select", options: [{ value: "planejado", label: "Planejado" }, { value: "ativo", label: "Ativo" }, { value: "concluido", label: "Concluído" }] },
   ];
   openFormModal({
-    title: "Nova sprint", fields,
+    title: sprint ? "Editar sprint" : "Nova sprint", fields, values: sprint,
+    deleteBtn: sprint ? {
+      label: "Excluir",
+      onClick: async () => {
+        if (!(await confirmDialog(`Excluir a sprint "${sprint.nome}"? As tarefas ligadas a ela ficam soltas, sem sprint.`))) return;
+        await sb.from("sprints").delete().eq("id", sprint.id);
+        closeModal(); toast("Sprint excluída."); renderKanbanSprints();
+      },
+    } : null,
     onSubmit: async (data) => {
-      const { error } = await sb.from("sprints").insert({ ...data, projeto_id: projetoId });
-      if (error) throw error;
-      toast("Sprint criada."); renderKanbanSprints();
+      if (sprint) {
+        const { error } = await sb.from("sprints").update(data).eq("id", sprint.id);
+        if (error) throw error;
+        toast("Sprint atualizada.");
+      } else {
+        const { error } = await sb.from("sprints").insert({ ...data, projeto_id: projetoId });
+        if (error) throw error;
+        toast("Sprint criada.");
+      }
+      renderKanbanSprints();
     },
   });
 }
 async function openTarefaForm(tarefa, projetoId, sprintId) {
   const projId = tarefa?.projeto_id || projetoId;
-  const { data: entregasDoProjeto } = await sb.from("entregas").select("id,titulo").eq("projeto_id", projId).order("data_prazo");
+  const [{ data: entregasDoProjeto }, { data: sprintsDoProjeto }] = await Promise.all([
+    sb.from("entregas").select("id,titulo").eq("projeto_id", projId).order("data_prazo"),
+    sb.from("sprints").select("id,nome,status").eq("projeto_id", projId).order("data_inicio", { ascending: false }),
+  ]);
   const belowFormHtml = tarefa ? await buildComentariosHtml("tarefa_id", tarefa.id) : "";
   const fields = [
     { name: "titulo", label: "Título", type: "text", required: true },
     { name: "descricao", label: "Descrição", type: "textarea" },
     { name: "entrega_id", label: "Etapa/entrega relacionada (opcional)", type: "select", placeholder: "Nenhuma — tarefa solta", options: (entregasDoProjeto || []).map((e) => ({ value: e.id, label: e.titulo })) },
+    { name: "sprint_id", label: "Sprint (opcional)", type: "select", placeholder: "Nenhuma — tarefa solta", default: sprintId || "", options: (sprintsDoProjeto || []).map((s) => ({ value: s.id, label: `${s.nome} (${label(s.status)})` })) },
     { name: "status", label: "Status", type: "select", half: true, options: STATUS_TAREFA.map((s) => ({ value: s, label: label(s) })) },
     { name: "prioridade", label: "Prioridade", type: "select", half: true, options: PRIORIDADES.map((s) => ({ value: s, label: label(s) })) },
     { name: "data_prazo", label: "Prazo (opcional)", type: "date", half: true },
@@ -722,7 +749,7 @@ async function openTarefaForm(tarefa, projetoId, sprintId) {
         const { error } = await sb.from("tarefas").update(data).eq("id", tarefa.id);
         if (error) throw error;
       } else {
-        const { error } = await sb.from("tarefas").insert({ ...data, projeto_id: projetoId, sprint_id: sprintId || null });
+        const { error } = await sb.from("tarefas").insert({ ...data, projeto_id: projetoId });
         if (error) throw error;
       }
       toast("Tarefa salva."); renderKanban();

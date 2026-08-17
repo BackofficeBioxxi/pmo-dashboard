@@ -355,7 +355,7 @@ button { font-family: inherit; }
 .badge-cancelado { color: var(--text-3); background: rgba(255,255,255,0.04); }
 .badge-iniciacao { color: var(--neon-purple); background: rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.28); }
 .badge-planejado, .badge-backlog, .badge-todo { color: var(--text-2); }
-.badge-em_andamento { color: var(--neon-cyan); }
+.badge-em_andamento, .badge-ativo { color: var(--neon-cyan); }
 .badge-pausado { color: var(--neon-yellow); }
 
 .priority-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
@@ -436,6 +436,12 @@ table.data-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
 
 /* ---------- kanban ---------- */
 .kanban-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+.kanban-sprints-lista { display: flex; gap: 12px; overflow-x: auto; margin-bottom: 16px; }
+.sprint-card { flex: 0 0 240px; background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--neon-purple); border-radius: var(--radius-md); padding: 12px 14px; cursor: pointer; }
+.sprint-card:hover { border-color: var(--neon-purple); }
+.sprint-card .sprint-nome { font-weight: 700; margin-bottom: 4px; }
+.sprint-card .sprint-periodo { font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.sprint-card .sprint-objetivo { font-size: 12.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .kanban-board { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 14px; overflow-x: auto; user-select: none; -webkit-user-select: none; }
 .kanban-col { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; min-height: 200px; }
 .kanban-list { min-height: 160px; }
