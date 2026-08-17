@@ -430,8 +430,10 @@ table.data-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
 .subtabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 20px; flex-wrap: wrap; }
 .subtab-item {
   padding: 9px 16px; font-size: 13px; font-weight: 600; color: var(--text-2);
-  cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  cursor: pointer; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  background: none; border-radius: 0; font-family: inherit;
 }
+.subtab-item:hover { color: var(--text-0); }
 .subtab-item.active { color: var(--text-0); border-color: var(--neon-cyan); }
 
 /* ---------- kanban ---------- */
