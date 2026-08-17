@@ -156,6 +156,17 @@ create table if not exists public.stakeholders (
   criado_em              timestamptz not null default now()
 );
 
+-- Quais stakeholders devem ser avisados (sininho + e-mail) sobre esta entrega
+-- especificamente. Sem nenhuma linha aqui pra uma entrega, o comportamento
+-- antigo continua valendo: todos os stakeholders do projeto são avisados.
+-- Com pelo menos uma linha, só os vinculados recebem alerta dessa entrega.
+create table if not exists public.entrega_stakeholders (
+  entrega_id     uuid not null references public.entregas(id) on delete cascade,
+  stakeholder_id uuid not null references public.stakeholders(id) on delete cascade,
+  primary key (entrega_id, stakeholder_id)
+);
+alter table public.entrega_stakeholders enable row level security;
+
 create table if not exists public.anexos (
   id             uuid primary key default gen_random_uuid(),
   projeto_id     uuid not null references public.projetos(id) on delete cascade,
@@ -409,6 +420,15 @@ drop policy if exists "stakeholders_update" on public.stakeholders;
 create policy "stakeholders_update" on public.stakeholders for update to authenticated using (public.e_editor_ou_admin());
 drop policy if exists "stakeholders_delete" on public.stakeholders;
 create policy "stakeholders_delete" on public.stakeholders for delete to authenticated using (public.e_editor_ou_admin());
+
+-- entrega_stakeholders: vê quem pode ver a entrega (via projeto); editor+ vincula/desvincula
+drop policy if exists "entrega_stakeholders_select" on public.entrega_stakeholders;
+create policy "entrega_stakeholders_select" on public.entrega_stakeholders for select to authenticated
+  using (exists (select 1 from public.entregas e where e.id = entrega_id and public.pode_ver_projeto(e.projeto_id)));
+drop policy if exists "entrega_stakeholders_insert" on public.entrega_stakeholders;
+create policy "entrega_stakeholders_insert" on public.entrega_stakeholders for insert to authenticated with check (public.e_editor_ou_admin());
+drop policy if exists "entrega_stakeholders_delete" on public.entrega_stakeholders;
+create policy "entrega_stakeholders_delete" on public.entrega_stakeholders for delete to authenticated using (public.e_editor_ou_admin());
 
 -- anexos: vê quem pode ver o projeto; editor+ envia; só admin exclui
 drop policy if exists "anexos_select" on public.anexos;

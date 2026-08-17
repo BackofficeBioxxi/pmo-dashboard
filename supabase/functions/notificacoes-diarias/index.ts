@@ -173,6 +173,21 @@ Deno.serve(async (req: Request) => {
       .eq("receber_digest_diario", true);
     if (errStake) throw errStake;
 
+    // Entregas com stakeholder(s) específicos vinculados só avisam essas
+    // pessoas; sem vínculo nenhum, cai no comportamento antigo (todo mundo do projeto).
+    const idsRelevantes = [...(entregas ?? []), ...(concluidas ?? [])].map((e) => e.id);
+    const vinculosPorEntrega: Record<string, Set<string>> = {};
+    if (idsRelevantes.length) {
+      const { data: vinculos } = await sb.from("entrega_stakeholders").select("entrega_id,stakeholder_id").in("entrega_id", idsRelevantes);
+      for (const v of vinculos ?? []) {
+        (vinculosPorEntrega[v.entrega_id] ??= new Set()).add(v.stakeholder_id);
+      }
+    }
+    function relevantePara(e: any, stakeholderId: string): boolean {
+      const especificos = vinculosPorEntrega[e.id];
+      return !especificos || especificos.size === 0 || especificos.has(stakeholderId);
+    }
+
     const resultados: any[] = [];
 
     for (const st of stakeholders ?? []) {
@@ -190,7 +205,7 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const doProjeto = (arr: any[]) => (arr ?? []).filter((e) => e.projeto_id === st.projeto_id);
+      const doProjeto = (arr: any[]) => (arr ?? []).filter((e) => e.projeto_id === st.projeto_id && relevantePara(e, st.id));
       const atrasadas = doProjeto(entregas ?? []).filter((e) => e.situacao_calculada === "atrasado");
       const emRisco = doProjeto(entregas ?? []).filter((e) => e.situacao_calculada === "em_risco");
       const concluidasRecentes = doProjeto(concluidas ?? []);

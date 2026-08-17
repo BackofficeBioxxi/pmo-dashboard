@@ -518,7 +518,16 @@ async function openEntregaForm(entrega, projetoIdPreset) {
       infoHtml = `<div class="small muted" style="margin-bottom:16px;">Nenhuma tarefa do Kanban vinculada a esta entrega ainda.</div>`;
     }
   }
-  const belowFormHtml = entrega ? await buildComentariosHtml("entrega_id", entrega.id) : "";
+  const stakeholdersVinculadosIds = entrega
+    ? new Set((await sb.from("entrega_stakeholders").select("stakeholder_id").eq("entrega_id", entrega.id)).data?.map((v) => v.stakeholder_id) ?? [])
+    : new Set();
+  const stakeholdersHtml = `
+    <div class="card" style="padding:14px 16px;margin:16px 0 0;">
+      <div class="small" style="font-weight:700;margin-bottom:4px;">Quem deve ser avisado sobre esta entrega (sininho + e-mail)</div>
+      <div class="small muted" style="margin-bottom:10px;">Se não marcar ninguém, todos os stakeholders do projeto continuam recebendo alerta dela — normal.</div>
+      <div id="entrega-stakeholders-lista" class="small muted">Selecione um projeto primeiro...</div>
+    </div>`;
+  const belowFormHtml = (entrega ? await buildComentariosHtml("entrega_id", entrega.id) : "") + stakeholdersHtml;
   const fields = [
     { name: "projeto_id", label: "Projeto", type: "select", required: true, options: state.projetos.map((p) => ({ value: p.id, label: p.nome })), default: projetoIdPreset },
     { name: "titulo", label: "Título", type: "text", required: true },
@@ -532,13 +541,30 @@ async function openEntregaForm(entrega, projetoIdPreset) {
     { name: "responsavel_id", label: "Responsável", type: "select", half: true, placeholder: "Sem responsável", options: state.perfis.map((p) => ({ value: p.id, label: p.nome })) },
     { name: "silenciar_notificacoes", label: "Silenciar notificações desta entrega", type: "checkbox", half: true },
   ];
+  async function carregarStakeholdersDoProjeto(projetoId) {
+    const container = document.getElementById("entrega-stakeholders-lista");
+    if (!projetoId) { container.innerHTML = "Selecione um projeto primeiro..."; return; }
+    const { data: stakes } = await sb.from("stakeholders").select("id,nome,email").eq("projeto_id", projetoId).eq("ativo", true).order("nome");
+    container.innerHTML = stakes?.length
+      ? stakes.map((s) => `
+        <label class="flex gap-8" style="align-items:center;padding:4px 0;font-weight:400;">
+          <input type="checkbox" class="chk-entrega-stakeholder" value="${s.id}" ${stakeholdersVinculadosIds.has(s.id) ? "checked" : ""} />
+          ${esc(s.nome)} <span class="muted">(${esc(s.email)})</span>
+        </label>`).join("")
+      : "Nenhum stakeholder cadastrado neste projeto ainda.";
+  }
   openFormModal({
     title: entrega ? "Editar entrega" : "Nova entrega",
     fields, values: entrega, infoHtml, belowFormHtml,
-    onExtraMount: () => wireComentarioInput({
-      coluna: "entrega_id", valorId: entrega?.id, projetoId: entrega?.projeto_id || projetoIdPreset,
-      onAdded: () => { closeModal(); openEntregaForm(entrega, projetoIdPreset); },
-    }),
+    onExtraMount: () => {
+      wireComentarioInput({
+        coluna: "entrega_id", valorId: entrega?.id, projetoId: entrega?.projeto_id || projetoIdPreset,
+        onAdded: () => { closeModal(); openEntregaForm(entrega, projetoIdPreset); },
+      });
+      const selProjeto = document.querySelector('#generic-form [name="projeto_id"]');
+      carregarStakeholdersDoProjeto(selProjeto.value);
+      selProjeto.onchange = () => carregarStakeholdersDoProjeto(selProjeto.value);
+    },
     deleteBtn: entrega && canEditItem(entrega) ? {
       label: "Excluir",
       onClick: async () => {
@@ -549,14 +575,21 @@ async function openEntregaForm(entrega, projetoIdPreset) {
     } : null,
     onSubmit: async (data) => {
       if (data.status === "concluido" && !data.data_conclusao) data.data_conclusao = todayISO();
+      const idsSelecionados = Array.from(document.querySelectorAll(".chk-entrega-stakeholder:checked")).map((el) => el.value);
+      let entregaId = entrega?.id;
       if (entrega) {
         const { error } = await sb.from("entregas").update(data).eq("id", entrega.id);
         if (error) throw error;
         toast("Entrega atualizada.");
       } else {
-        const { error } = await sb.from("entregas").insert(data);
+        const { data: nova, error } = await sb.from("entregas").insert(data).select().single();
         if (error) throw error;
+        entregaId = nova.id;
         toast("Entrega criada.");
+      }
+      await sb.from("entrega_stakeholders").delete().eq("entrega_id", entregaId);
+      if (idsSelecionados.length) {
+        await sb.from("entrega_stakeholders").insert(idsSelecionados.map((stakeholder_id) => ({ entrega_id: entregaId, stakeholder_id })));
       }
       renderEntregasTable();
       if (state.currentTab === "visao-geral") loadVisaoGeral();
@@ -1323,10 +1356,25 @@ async function abrirModalAlertas() {
     if (e2) throw e2;
     entregas = e; stakeholders = s;
   } catch (err) { toast(err.message, "err"); setLoading(false); return; }
+
+  // Entregas com stakeholder(s) específicos vinculados só avisam essas
+  // pessoas; sem vínculo nenhum, cai no comportamento antigo (todo mundo do projeto).
+  const vinculosPorEntrega = {};
+  if (entregas.length) {
+    const { data: vinculos } = await sb.from("entrega_stakeholders").select("entrega_id,stakeholder_id").in("entrega_id", entregas.map((e) => e.id));
+    (vinculos || []).forEach((v) => (vinculosPorEntrega[v.entrega_id] ??= new Set()).add(v.stakeholder_id));
+  }
   setLoading(false);
 
   const grupos = stakeholders
-    .map((st) => ({ st, itens: entregas.filter((e) => e.projeto_id === st.projeto_id) }))
+    .map((st) => ({
+      st,
+      itens: entregas.filter((e) => {
+        if (e.projeto_id !== st.projeto_id) return false;
+        const especificos = vinculosPorEntrega[e.id];
+        return !especificos || especificos.size === 0 || especificos.has(st.id);
+      }),
+    }))
     .filter((g) => g.itens.length);
 
   const bodyHtml = grupos.length
