@@ -166,19 +166,33 @@
     <section class="tab-panel" id="tab-kanban">
       <div class="kanban-toolbar">
         <select id="kan-filtro-projeto"><option value="">Selecione um projeto...</option></select>
-        <select id="kan-filtro-sprint"><option value="">Todas as tarefas</option></select>
-        <div class="flex gap-8" style="margin-left:auto;">
-          <button class="btn btn-ghost btn-sm" id="btn-nova-sprint">+ Sprint</button>
-          <button class="btn btn-primary btn-sm" id="btn-nova-tarefa">+ Tarefa</button>
-        </div>
       </div>
-      <div class="kanban-sprints-lista" id="kanban-sprints-lista"></div>
-      <div class="kanban-board" id="kanban-board">
-        <div class="kanban-col" data-status="backlog"><div class="kanban-col-head"><span>Backlog</span><span class="count" data-count="backlog">0</span></div><div class="kanban-list" id="kcol-backlog"></div></div>
-        <div class="kanban-col" data-status="todo"><div class="kanban-col-head"><span>A fazer</span><span class="count" data-count="todo">0</span></div><div class="kanban-list" id="kcol-todo"></div></div>
-        <div class="kanban-col" data-status="em_andamento"><div class="kanban-col-head"><span>Em andamento</span><span class="count" data-count="em_andamento">0</span></div><div class="kanban-list" id="kcol-em_andamento"></div></div>
-        <div class="kanban-col" data-status="em_revisao"><div class="kanban-col-head"><span>Em revisão</span><span class="count" data-count="em_revisao">0</span></div><div class="kanban-list" id="kcol-em_revisao"></div></div>
-        <div class="kanban-col" data-status="concluido"><div class="kanban-col-head"><span>Concluído</span><span class="count" data-count="concluido">0</span></div><div class="kanban-list" id="kcol-concluido"></div></div>
+      <div class="subtabs">
+        <button class="subtab-item active" data-subtab="sprints">Sprints</button>
+        <button class="subtab-item" data-subtab="board">Kanban</button>
+      </div>
+
+      <!-- Sub-aba: planejamento das sprints -->
+      <div class="subtab-panel" id="subtab-sprints">
+        <div class="flex" style="justify-content:flex-end;margin-bottom:14px;">
+          <button class="btn btn-ghost btn-sm" id="btn-nova-sprint">+ Sprint</button>
+        </div>
+        <div class="kanban-sprints-lista" id="kanban-sprints-lista"></div>
+      </div>
+
+      <!-- Sub-aba: execução (quadro) -->
+      <div class="subtab-panel hidden" id="subtab-board">
+        <div class="kanban-toolbar">
+          <select id="kan-filtro-sprint"><option value="">Todas as tarefas</option></select>
+          <button class="btn btn-primary btn-sm" id="btn-nova-tarefa" style="margin-left:auto;">+ Tarefa</button>
+        </div>
+        <div class="kanban-board" id="kanban-board">
+          <div class="kanban-col" data-status="backlog"><div class="kanban-col-head"><span>Backlog</span><span class="count" data-count="backlog">0</span></div><div class="kanban-list" id="kcol-backlog"></div></div>
+          <div class="kanban-col" data-status="todo"><div class="kanban-col-head"><span>A fazer</span><span class="count" data-count="todo">0</span></div><div class="kanban-list" id="kcol-todo"></div></div>
+          <div class="kanban-col" data-status="em_andamento"><div class="kanban-col-head"><span>Em andamento</span><span class="count" data-count="em_andamento">0</span></div><div class="kanban-list" id="kcol-em_andamento"></div></div>
+          <div class="kanban-col" data-status="em_revisao"><div class="kanban-col-head"><span>Em revisão</span><span class="count" data-count="em_revisao">0</span></div><div class="kanban-list" id="kcol-em_revisao"></div></div>
+          <div class="kanban-col" data-status="concluido"><div class="kanban-col-head"><span>Concluído</span><span class="count" data-count="concluido">0</span></div><div class="kanban-list" id="kcol-concluido"></div></div>
+        </div>
       </div>
     </section>
 

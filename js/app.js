@@ -599,6 +599,11 @@ async function openEntregaForm(entrega, projetoIdPreset) {
 }
 
 // ==== SPRINTS / KANBAN ====
+function switchKanbanSubtab(nome) {
+  document.querySelectorAll('#tab-kanban .subtab-item').forEach((el) => el.classList.toggle("active", el.dataset.subtab === nome));
+  document.getElementById("subtab-sprints").classList.toggle("hidden", nome !== "sprints");
+  document.getElementById("subtab-board").classList.toggle("hidden", nome !== "board");
+}
 async function loadKanban() {
   await refreshBase();
   await fillProjectSelects();
@@ -607,23 +612,48 @@ async function loadKanban() {
   document.getElementById("kan-filtro-sprint").onchange = () => renderKanban();
   document.getElementById("btn-nova-sprint").onclick = () => openSprintForm(projSel.value);
   document.getElementById("btn-nova-tarefa").onclick = () => openTarefaForm(null, projSel.value, document.getElementById("kan-filtro-sprint").value);
+  document.querySelectorAll('#tab-kanban .subtab-item').forEach((el) => (el.onclick = () => switchKanbanSubtab(el.dataset.subtab)));
+  switchKanbanSubtab("sprints");
   if (projSel.value) await renderKanbanSprints();
   else STATUS_TAREFA.forEach((s) => (document.getElementById(`kcol-${s}`).innerHTML = ""));
+}
+// Texto de prazo de uma sprint: quantos dias faltam, se termina hoje, se já
+// passou do fim sem ter sido concluída, ou se já foi concluída.
+function sprintPrazoTexto(sprint, hoje) {
+  if (sprint.status === "concluido") return { texto: "Concluída", atrasada: false };
+  if (sprint.data_fim < hoje) return { texto: "Atrasada", atrasada: true };
+  const dias = Math.round((new Date(sprint.data_fim) - new Date(hoje)) / 86400000);
+  if (dias === 0) return { texto: "Termina hoje", atrasada: false };
+  return { texto: `${dias} dia${dias === 1 ? "" : "s"} restante${dias === 1 ? "" : "s"}`, atrasada: false };
 }
 async function renderKanbanSprints() {
   const projetoId = document.getElementById("kan-filtro-projeto").value;
   const sprintSel = document.getElementById("kan-filtro-sprint");
   const listaEl = document.getElementById("kanban-sprints-lista");
   if (!projetoId) { sprintSel.innerHTML = `<option value="">Todas as tarefas</option>`; listaEl.innerHTML = ""; return renderKanban(); }
-  const { data: sprints, error } = await sb.from("sprints").select("*").eq("projeto_id", projetoId).order("data_inicio", { ascending: false });
+  const [{ data: sprints, error }, { data: tarefasProjeto }] = await Promise.all([
+    sb.from("sprints").select("*").eq("projeto_id", projetoId).order("data_inicio", { ascending: true }),
+    sb.from("tarefas").select("sprint_id,status").eq("projeto_id", projetoId),
+  ]);
   if (error) return toast(error.message, "err");
   sprintSel.innerHTML = `<option value="">Todas as tarefas do projeto</option>` + sprints.map((s) => `<option value="${s.id}">${esc(s.nome)} (${label(s.status)})</option>`).join("");
-  listaEl.innerHTML = sprints.map((s) => `
-    <div class="sprint-card" data-id="${s.id}">
+
+  const hoje = todayISO();
+  listaEl.innerHTML = sprints.length ? sprints.map((s) => {
+    const tarefasDaSprint = (tarefasProjeto || []).filter((t) => t.sprint_id === s.id);
+    const total = tarefasDaSprint.length;
+    const feitas = tarefasDaSprint.filter((t) => t.status === "concluido").length;
+    const pct = total ? Math.round((feitas / total) * 100) : 0;
+    const prazo = sprintPrazoTexto(s, hoje);
+    return `
+    <div class="sprint-card ${s.status === "ativo" ? "sprint-card-ativa" : ""}" data-id="${s.id}">
       <div class="sprint-nome">${esc(s.nome)} ${badge(s.status)}</div>
-      <div class="sprint-periodo">${fmtDate(s.data_inicio)} — ${fmtDate(s.data_fim)}</div>
+      <div class="sprint-periodo">${fmtDate(s.data_inicio)} — ${fmtDate(s.data_fim)} · <span class="${prazo.atrasada ? "sprint-atrasada" : ""}">${prazo.texto}</span></div>
+      <div class="p-progress"><div class="p-progress-fill" style="width:${pct}%"></div></div>
+      <div class="sprint-progresso-texto">${feitas} de ${total} tarefa(s) concluída(s) (${pct}%)</div>
       <div class="sprint-objetivo">${esc(s.objetivo || "Sem objetivo descrito.")}</div>
-    </div>`).join("");
+    </div>`;
+  }).join("") : `<div class="empty-state">Nenhuma sprint criada ainda.</div>`;
   listaEl.querySelectorAll(".sprint-card").forEach((el) => (el.onclick = () => openSprintForm(projetoId, sprints.find((s) => s.id === el.dataset.id))));
   await renderKanban();
 }
