@@ -74,8 +74,8 @@ create table if not exists public.projetos (
   nome               text not null,
   descricao          text,
   cliente_area       text,
-  status             text not null default 'planejado'
-                     check (status in ('planejado','em_andamento','pausado','concluido','cancelado')),
+  status             text not null default 'iniciacao'
+                     check (status in ('iniciacao','planejado','em_andamento','pausado','concluido','cancelado')),
   prioridade         text not null default 'media' check (prioridade in ('baixa','media','alta','critica')),
   data_inicio        date,
   data_fim_prevista  date,
@@ -86,6 +86,11 @@ create table if not exists public.projetos (
   criado_em          timestamptz not null default now(),
   atualizado_em      timestamptz not null default now()
 );
+
+-- Libera o novo status "iniciacao" em bancos que já tinham a tabela projetos criada antes dele existir.
+alter table public.projetos drop constraint if exists projetos_status_check;
+alter table public.projetos add constraint projetos_status_check check (status in ('iniciacao','planejado','em_andamento','pausado','concluido','cancelado'));
+alter table public.projetos alter column status set default 'iniciacao';
 
 -- Escopo de acesso do papel "colaborador" (agora que "projetos" já existe).
 create table if not exists public.projeto_membros (
@@ -232,6 +237,17 @@ insert into public.configuracoes (chave, valor) values
   ('remetente_nome', 'Juliana Lobão'),
   ('remetente_email', 'seu-email@outlook.com')
 on conflict (chave) do nothing;
+
+-- Guarda credenciais/tokens de integrações (ex.: refresh token do Microsoft
+-- Graph, renovado a cada envio de e-mail). Sem NENHUMA policy de acesso: só o
+-- service_role (usado pelas Edge Functions) lê ou escreve aqui — nem admin,
+-- nem editor, nem ningum logado no painel via anon/authenticated consegue ver.
+create table if not exists public.integracoes_secretas (
+  chave         text primary key,
+  valor         text not null,
+  atualizado_em timestamptz not null default now()
+);
+alter table public.integracoes_secretas enable row level security;
 
 -- Índices para os filtros mais comuns da tela --------------------------------
 create index if not exists idx_entregas_projeto     on public.entregas (projeto_id);

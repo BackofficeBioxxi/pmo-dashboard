@@ -125,9 +125,11 @@
     <!-- Projetos -->
     <section class="tab-panel" id="tab-projetos">
       <div class="filters-bar">
-        <input type="search" id="proj-busca" placeholder="Buscar projeto..." />
+        <input type="search" id="proj-busca" placeholder="Buscar projeto..." list="proj-busca-lista" autocomplete="off" />
+        <datalist id="proj-busca-lista"></datalist>
         <select id="proj-filtro-status">
           <option value="">Todos os status</option>
+          <option value="iniciacao">Iniciação</option>
           <option value="planejado">Planejado</option>
           <option value="em_andamento">Em andamento</option>
           <option value="pausado">Pausado</option>

@@ -4,17 +4,16 @@
 // Roda 1x por dia (agendada via supabase/schedule_cron.sql, com pg_cron).
 // Para cada stakeholder ativo com receber_digest_diario=true, monta um resumo
 // das entregas do(s) projeto(s) dele que estão atrasadas, em risco, ou que
-// foram concluídas nas últimas 24h — e envia por e-mail via Brevo (API
-// gratuita). Precisa ser um serviço assim porque este envio é 100% automático
-// — não dá pra depender de senha de aplicativo de e-mail corporativo, que a
-// política de TI da empresa não libera.
+// foram concluídas nas últimas 24h — e envia por e-mail via Microsoft Graph
+// (enviado como a própria usuária admin, sem SMTP/senha de aplicativo — só
+// permissão delegada Mail.Send, autorizada uma única vez).
 //
 // Implantar: colar este arquivo no editor de Edge Functions do painel do
 // Supabase (Functions → New Function → nome "notificacoes-diarias") e clicar
 // em Deploy. Não precisa de CLI nem terminal.
 //
 // Secrets necessários (Project Settings → Edge Functions → Secrets):
-//   BREVO_API_KEY = chave da API do Brevo
+//   GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET, GRAPH_REFRESH_TOKEN
 // (SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já existem automaticamente em
 //  toda Edge Function do projeto — não precisa cadastrar.)
 // ============================================================================
@@ -23,9 +22,43 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BREVO_API_KEY = Deno.env.get("BREVO_API_KEY") ?? "";
+const GRAPH_TENANT_ID = Deno.env.get("GRAPH_TENANT_ID")!;
+const GRAPH_CLIENT_ID = Deno.env.get("GRAPH_CLIENT_ID")!;
+const GRAPH_CLIENT_SECRET = Deno.env.get("GRAPH_CLIENT_SECRET")!;
+const GRAPH_REFRESH_TOKEN_BOOTSTRAP = Deno.env.get("GRAPH_REFRESH_TOKEN") ?? "";
+const GRAPH_SCOPE = "https://graph.microsoft.com/Mail.Send offline_access https://graph.microsoft.com/User.Read";
 
 const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+// O refresh token é trocado a cada uso; guardamos sempre o mais novo na tabela
+// "integracoes_secretas" (sem NENHUMA policy de RLS liberada — só o
+// service_role, usado por esta própria função, consegue ler ou escrever nela).
+// Isso evita depender de alguém colar um token novo manualmente daqui a
+// alguns meses, sem expor esse token pra usuários logados no painel.
+async function obterAccessTokenGraph(): Promise<string> {
+  const { data: cfg } = await sb.from("integracoes_secretas").select("valor").eq("chave", "graph_refresh_token").maybeSingle();
+  const refreshToken = cfg?.valor || GRAPH_REFRESH_TOKEN_BOOTSTRAP;
+  if (!refreshToken) throw new Error("Nenhum refresh token do Microsoft Graph configurado.");
+
+  const resp = await fetch(`https://login.microsoftonline.com/${GRAPH_TENANT_ID}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: GRAPH_CLIENT_ID,
+      client_secret: GRAPH_CLIENT_SECRET,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      scope: GRAPH_SCOPE,
+    }),
+  });
+  if (!resp.ok) {
+    const texto = await resp.text();
+    throw new Error(`Falha ao renovar token do Microsoft Graph: ${resp.status} ${texto}`);
+  }
+  const tokenData = await resp.json();
+  await sb.from("integracoes_secretas").upsert({ chave: "graph_refresh_token", valor: tokenData.refresh_token, atualizado_em: new Date().toISOString() });
+  return tokenData.access_token;
+}
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 
@@ -76,28 +109,42 @@ function montarHtml(nomeStakeholder: string, grupos: Record<string, any[]>, conc
 }
 
 async function enviarEmail(destinatario: { nome: string; email: string }, assunto: string, html: string) {
-  const { data: cfg } = await sb.from("configuracoes").select("chave,valor").in("chave", ["remetente_nome", "remetente_email"]);
-  const remetenteNome = cfg?.find((c: any) => c.chave === "remetente_nome")?.valor ?? "PMO Dashboard";
-  const remetenteEmail = cfg?.find((c: any) => c.chave === "remetente_email")?.valor ?? "no-reply@example.com";
+  const accessToken = await obterAccessTokenGraph();
 
-  const resp = await fetch("https://api.brevo.com/v3/smtp/email", {
+  const resp = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
     method: "POST",
-    headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      sender: { name: remetenteNome, email: remetenteEmail },
-      to: [{ email: destinatario.email, name: destinatario.nome }],
-      subject: assunto,
-      htmlContent: html,
+      message: {
+        subject: assunto,
+        body: { contentType: "HTML", content: html },
+        toRecipients: [{ emailAddress: { address: destinatario.email, name: destinatario.nome } }],
+      },
+      saveToSentItems: "true",
     }),
   });
 
   if (!resp.ok) {
     const texto = await resp.text();
-    throw new Error(`Brevo respondeu ${resp.status}: ${texto}`);
+    throw new Error(`Microsoft Graph respondeu ${resp.status}: ${texto}`);
   }
 }
 
-Deno.serve(async (_req: Request) => {
+const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
+
+Deno.serve(async (req: Request) => {
+  // Só quem conhece o CRON_SECRET (o agendamento automático, guardado só no
+  // Supabase) pode acionar esta função — a chave pública do site (anon key)
+  // é rejeitada aqui dentro. Isso impede qualquer bot/visitante de disparar
+  // envios usando só a chave que já é pública no código do site. Precisa da
+  // opção "Verify JWT with legacy secret" desligada (Settings da função) pra
+  // esse segredo próprio conseguir chegar até aqui.
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.replace(/^Bearer\s+/i, "");
+  if (!CRON_SECRET || token !== CRON_SECRET) {
+    return new Response(JSON.stringify({ ok: false, erro: "Não autorizado" }), { status: 401 });
+  }
+
   try {
     const { data: cfgDigest } = await sb.from("configuracoes").select("valor").eq("chave", "digest_ativo").single();
     if (cfgDigest?.valor !== "true") {

@@ -37,15 +37,15 @@ Leva uns 20–30 minutos, tudo feito clicando e colando — nenhum comando, nenh
 3. Pronto — quando você fizer login no site com esse e-mail/senha pela primeira vez, o sistema te reconhece automaticamente como **administradora** (é o primeiro login do sistema).
 4. Para trocar esse e-mail depois, ou adicionar outros administradores/editores no futuro: repita "Add user" com o novo e-mail e, na aba **Configurações** do site, defina o papel da pessoa como "Admin". Não precisa voltar a este guia para isso.
 
-## Passo 4 — E-mails: sem envio automático (por decisão sua)
+## Passo 4 — E-mails: digest diário automático via Microsoft Graph
 
-A TI não libera senha de aplicativo/SMTP autenticado pra conta corporativa, e enviar por um serviço terceiro (Brevo) arriscava cair em spam por não ter o domínio `@bioxxi.com.br` autenticado. Por isso, o e-mail funciona assim:
+A TI não libera senha de aplicativo/SMTP autenticado pra conta corporativa, e um serviço terceiro (Brevo) arriscava cair em spam sem o domínio `@bioxxi.com.br` autenticado. A solução: um cadastro de aplicativo no Microsoft Entra (Azure AD) da própria Bioxxi, usando a API oficial da Microsoft (Graph) com a permissão delegada `Mail.Send` — que não depende de aprovação da TI. O e-mail sai como você mesma (`juliana.lobao@bioxxi.com.br`), e uma cópia fica salva na sua pasta "Itens Enviados" do Outlook.
 
-- **Nenhum e-mail sai sozinho.** O sistema te avisa **dentro do próprio painel** (o sininho 🔔 na barra lateral, com um número de quantas entregas estão atrasadas/em risco).
-- Clicando no sininho, você vê a lista agrupada por stakeholder, com um botão **"Copiar resumo"** — copia o texto já formatado, você cola (Ctrl+V) num e-mail novo no seu Outlook e envia você mesma.
-- O mesmo vale pro **Report do CEO** (aba Stakeholders): botão "Copiar conteúdo" em vez de envio automático.
+Isso já foi configurado uma vez (registro do aplicativo "PMO Dashboard - Email" no Entra, permissão Mail.Send, autorização única). Os 4 valores gerados nesse processo (`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `GRAPH_REFRESH_TOKEN`) precisam estar em **Project Settings → Edge Functions → Secrets** no Supabase antes do Passo 5.
 
-Isso significa: **nenhum passo de configuração de e-mail é necessário.** Pode seguir direto pro Passo 5.
+Além do digest automático, continuam disponíveis, sem depender de nada disso:
+- O sininho 🔔 de alertas na barra lateral, com botão "Copiar resumo" por stakeholder.
+- O **Report do CEO** (aba Stakeholders), com botões "Copiar conteúdo" e "Copiar e-mail" — esse continua manual de propósito, pra você controlar exatamente o que o CEO recebe.
 
 ## Passo 5 — Implantar as Edge Functions
 

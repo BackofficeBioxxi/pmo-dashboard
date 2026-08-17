@@ -381,6 +381,8 @@ function renderProjectsGrid() {
   const busca = (document.getElementById("proj-busca").value || "").toLowerCase();
   const filtroStatus = document.getElementById("proj-filtro-status").value;
   const grid = document.getElementById("projects-grid");
+  const datalist = document.getElementById("proj-busca-lista");
+  if (datalist) datalist.innerHTML = state.projetos.map((p) => `<option value="${esc(p.nome)}"></option>`).join("");
   const lista = state.projetos.filter((p) => (!filtroStatus || p.status === filtroStatus) && (!busca || p.nome.toLowerCase().includes(busca)));
   grid.innerHTML = lista.length ? lista.map((p) => `
     <div class="project-card" data-id="${p.id}">
