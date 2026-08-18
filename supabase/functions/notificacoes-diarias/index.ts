@@ -70,7 +70,7 @@ function badgeColor(situacao: string): string {
   return { atrasado: "#ff5c72", em_risco: "#ffd23e", no_prazo: "#34e9ff", concluido: "#3ef7a6" }[situacao] ?? "#8b8fb8";
 }
 
-function montarHtml(nomeStakeholder: string, grupos: Record<string, any[]>, concluidasRecentes: any[]): string {
+function montarHtml(nomeStakeholder: string, grupos: Record<string, any[]>): string {
   const linhaItem = (e: any) => `
     <tr>
       <td style="padding:10px 12px;border-bottom:1px solid #eee;">${e.projetos?.nome ?? "-"}</td>
@@ -103,7 +103,6 @@ function montarHtml(nomeStakeholder: string, grupos: Record<string, any[]>, conc
     <p style="color:#555;font-size:14px;">Resumo automático de hoje (${hoje()}) dos seus projetos:</p>
     ${secao("⚠️ Atrasadas", grupos.atrasado ?? [])}
     ${secao("🟡 Em risco (vencem em breve)", grupos.em_risco ?? [])}
-    ${secao("✅ Concluídas nas últimas 24h", concluidasRecentes)}
     <p style="color:#999;font-size:12px;margin-top:28px;">Este é um e-mail automático do PMO Dashboard. Para ajustar o que você recebe, fale com o administrador do sistema.</p>
   </div>`;
 }
@@ -158,14 +157,6 @@ Deno.serve(async (req: Request) => {
       .eq("silenciar_notificacoes", false);
     if (errEntregas) throw errEntregas;
 
-    const ontemISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: concluidas, error: errConcluidas } = await sb
-      .from("v_entregas")
-      .select("id,titulo,data_prazo,data_conclusao,situacao_calculada,projeto_id,projetos(nome),perfis:responsavel_id(nome)")
-      .eq("status", "concluido")
-      .gte("atualizado_em", ontemISO);
-    if (errConcluidas) throw errConcluidas;
-
     const { data: stakeholders, error: errStake } = await sb
       .from("stakeholders")
       .select("id,nome,email,projeto_id")
@@ -175,7 +166,7 @@ Deno.serve(async (req: Request) => {
 
     // Entregas com stakeholder(s) específicos vinculados só avisam essas
     // pessoas; sem vínculo nenhum, cai no comportamento antigo (todo mundo do projeto).
-    const idsRelevantes = [...(entregas ?? []), ...(concluidas ?? [])].map((e) => e.id);
+    const idsRelevantes = (entregas ?? []).map((e) => e.id);
     const vinculosPorEntrega: Record<string, Set<string>> = {};
     if (idsRelevantes.length) {
       const { data: vinculos } = await sb.from("entrega_stakeholders").select("entrega_id,stakeholder_id").in("entrega_id", idsRelevantes);
@@ -208,9 +199,8 @@ Deno.serve(async (req: Request) => {
       const doProjeto = (arr: any[]) => (arr ?? []).filter((e) => e.projeto_id === st.projeto_id && relevantePara(e, st.id));
       const atrasadas = doProjeto(entregas ?? []).filter((e) => e.situacao_calculada === "atrasado");
       const emRisco = doProjeto(entregas ?? []).filter((e) => e.situacao_calculada === "em_risco");
-      const concluidasRecentes = doProjeto(concluidas ?? []);
 
-      if (atrasadas.length === 0 && emRisco.length === 0 && concluidasRecentes.length === 0) {
+      if (atrasadas.length === 0 && emRisco.length === 0) {
         await sb.from("notificacoes_log").insert({
           tipo: "digest_diario",
           stakeholder_id: st.id,
@@ -222,7 +212,7 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const html = montarHtml(st.nome, { atrasado: atrasadas, em_risco: emRisco }, concluidasRecentes);
+      const html = montarHtml(st.nome, { atrasado: atrasadas, em_risco: emRisco });
       const assunto = `Resumo diário — ${atrasadas.length} atrasada(s), ${emRisco.length} em risco`;
 
       try {

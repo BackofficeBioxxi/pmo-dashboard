@@ -103,7 +103,13 @@ function openModal({ title, bodyHtml, footerHtml, onMount }) {
       </div>
     </div>`;
   document.getElementById("modal-close-btn").onclick = closeModal;
-  document.getElementById("modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
+  // Só fecha se o clique COMEÇOU e TERMINOU no fundo — assim, selecionar um
+  // texto arrastando o mouse (ex: revisar um comentário) e soltar fora da
+  // caixa não fecha o modal por engano.
+  const overlay = document.getElementById("modal-overlay");
+  let mousedownNoFundo = false;
+  overlay.addEventListener("mousedown", (e) => { mousedownNoFundo = e.target.id === "modal-overlay"; });
+  overlay.addEventListener("click", (e) => { if (e.target.id === "modal-overlay" && mousedownNoFundo) closeModal(); });
   if (onMount) onMount();
 }
 function confirmDialog(message) {
@@ -184,11 +190,17 @@ async function buildComentariosHtml(coluna, valorId) {
   if (!valorId) return "";
   const { data, error } = await sb.from("comentarios").select("*, perfis:autor_id(nome)").eq(coluna, valorId).order("criado_em", { ascending: true });
   if (error) return "";
-  const lista = (data || []).map((c) => `
-    <div style="padding:8px 0;border-bottom:1px solid var(--border);">
-      <div class="small"><b>${esc(c.perfis?.nome || "—")}</b> <span class="muted">${new Date(c.criado_em).toLocaleString("pt-BR")}</span></div>
-      <div class="small" style="margin-top:2px;">${esc(c.texto)}</div>
-    </div>`).join("") || `<div class="small muted">Nenhum comentário ainda.</div>`;
+  const lista = (data || []).map((c) => {
+    const podeEditar = canEdit() || c.autor_id === state.user?.id;
+    return `
+    <div class="comentario-item" data-id="${c.id}" style="padding:8px 0;border-bottom:1px solid var(--border);">
+      <div class="small" style="display:flex;justify-content:space-between;align-items:center;">
+        <span><b>${esc(c.perfis?.nome || "—")}</b> <span class="muted">${new Date(c.criado_em).toLocaleString("pt-BR")}</span></span>
+        ${podeEditar ? `<button type="button" class="btn btn-ghost btn-sm comentario-editar-btn" style="padding:2px 8px;">✎ Editar</button>` : ""}
+      </div>
+      <div class="small comentario-texto" style="margin-top:2px;">${esc(c.texto)}</div>
+    </div>`;
+  }).join("") || `<div class="small muted">Nenhum comentário ainda.</div>`;
   return `
     <div class="card" style="padding:14px 16px;margin:16px 0 0;">
       <div class="small" style="font-weight:700;margin-bottom:8px;">Histórico / comentários (justificativas, atualizações, pedidos de prazo...)</div>
@@ -200,6 +212,27 @@ async function buildComentariosHtml(coluna, valorId) {
     </div>`;
 }
 function wireComentarioInput({ coluna, valorId, projetoId, onAdded }) {
+  document.querySelectorAll(".comentario-editar-btn").forEach((btn) => {
+    btn.onclick = () => {
+      const item = btn.closest(".comentario-item");
+      const textoEl = item.querySelector(".comentario-texto");
+      const textoAtual = textoEl.textContent;
+      textoEl.innerHTML = `
+        <textarea class="comentario-edicao-input" style="width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--border-strong);background:var(--input-bg);color:var(--text-0);">${esc(textoAtual)}</textarea>
+        <div class="flex gap-8" style="margin-top:6px;">
+          <button type="button" class="btn btn-primary btn-sm comentario-salvar-btn">Salvar</button>
+          <button type="button" class="btn btn-ghost btn-sm comentario-cancelar-btn">Cancelar</button>
+        </div>`;
+      textoEl.querySelector(".comentario-cancelar-btn").onclick = () => { textoEl.textContent = textoAtual; };
+      textoEl.querySelector(".comentario-salvar-btn").onclick = async () => {
+        const novoTexto = textoEl.querySelector(".comentario-edicao-input").value.trim();
+        if (!novoTexto) return;
+        const { error } = await sb.from("comentarios").update({ texto: novoTexto }).eq("id", item.dataset.id);
+        if (error) return toast(error.message, "err");
+        toast("Comentário editado."); onAdded();
+      };
+    };
+  });
   const btn = document.getElementById("btn-add-comentario");
   if (!btn) return;
   btn.onclick = async () => {

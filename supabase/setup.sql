@@ -450,6 +450,9 @@ create policy "comentarios_insert" on public.comentarios for insert to authentic
 drop policy if exists "comentarios_delete" on public.comentarios;
 create policy "comentarios_delete" on public.comentarios for delete to authenticated
   using (public.e_admin());
+drop policy if exists "comentarios_update" on public.comentarios;
+create policy "comentarios_update" on public.comentarios for update to authenticated
+  using (public.e_editor_ou_admin() or autor_id = auth.uid());
 
 -- checkpoints: leitura por quem vê o projeto; escrita manual por editor+;
 -- a automação do Teams NÃO usa este caminho — ela passa pela Edge Function
