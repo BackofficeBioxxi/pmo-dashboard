@@ -3,10 +3,10 @@
 //
 // Roda 1x por dia (agendada via supabase/schedule_cron.sql, com pg_cron).
 // Para cada stakeholder ativo com receber_digest_diario=true, monta um resumo
-// das entregas do(s) projeto(s) dele que estão atrasadas, em risco, ou que
-// foram concluídas nas últimas 24h — e envia por e-mail via Microsoft Graph
-// (enviado como a própria usuária admin, sem SMTP/senha de aplicativo — só
-// permissão delegada Mail.Send, autorizada uma única vez).
+// só das entregas do(s) projeto(s) dele que estão atrasadas ou em risco (não
+// avisa sobre o que já foi concluído) — e envia por e-mail via Microsoft
+// Graph (enviado como a própria usuária admin, sem SMTP/senha de aplicativo
+// — só permissão delegada Mail.Send, autorizada uma única vez).
 //
 // Implantar: colar este arquivo no editor de Edge Functions do painel do
 // Supabase (Functions → New Function → nome "notificacoes-diarias") e clicar
@@ -107,9 +107,7 @@ function montarHtml(nomeStakeholder: string, grupos: Record<string, any[]>): str
   </div>`;
 }
 
-async function enviarEmail(destinatario: { nome: string; email: string }, assunto: string, html: string) {
-  const accessToken = await obterAccessTokenGraph();
-
+async function enviarEmail(accessToken: string, destinatario: { nome: string; email: string }, assunto: string, html: string) {
   const resp = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -180,6 +178,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const resultados: any[] = [];
+    // Um token só serve pra todos os e-mails desta execução — busca (e troca
+    // o refresh token) uma única vez, só quando o primeiro e-mail de verdade
+    // precisar ser enviado, em vez de a cada stakeholder.
+    let accessTokenDaExecucao: string | null = null;
+    async function obterAccessTokenCacheado(): Promise<string> {
+      if (!accessTokenDaExecucao) accessTokenDaExecucao = await obterAccessTokenGraph();
+      return accessTokenDaExecucao;
+    }
 
     for (const st of stakeholders ?? []) {
       const dataReferencia = hoje();
@@ -216,7 +222,8 @@ Deno.serve(async (req: Request) => {
       const assunto = `Resumo diário — ${atrasadas.length} atrasada(s), ${emRisco.length} em risco`;
 
       try {
-        await enviarEmail({ nome: st.nome, email: st.email }, assunto, html);
+        const accessToken = await obterAccessTokenCacheado();
+        await enviarEmail(accessToken, { nome: st.nome, email: st.email }, assunto, html);
         await sb.from("notificacoes_log").insert({
           tipo: "digest_diario",
           stakeholder_id: st.id,

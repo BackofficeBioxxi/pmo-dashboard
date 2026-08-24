@@ -22,6 +22,7 @@ const state = {
   calendar: null,
   stakeholdersAll: [],     // cache de todos os stakeholders (todos os projetos), pro preenchimento inteligente do report
   reportDestinatarios: [], // destinatários escolhidos pro Report do CEO: [{email, nome, stakeholder_id|null}]
+  alertaDestinatarios: [], // destinatários do e-mail de alertas (enviado direto do navegador via Microsoft Graph)
 };
 
 const STATUS_PROJETO = ["iniciacao", "planejado", "em_andamento", "pausado", "concluido", "cancelado"];
@@ -1488,9 +1489,13 @@ async function abrirModalAlertas() {
   openModal({
     title: `Alertas (${entregas.length})`,
     bodyHtml,
-    footerHtml: `<button class="btn btn-primary" id="alertas-fechar">Fechar</button>`,
+    footerHtml: entregas.length
+      ? `<button class="btn btn-ghost" id="alertas-enviar-email" style="margin-right:auto;">📧 Enviar alertas por e-mail</button><button class="btn btn-primary" id="alertas-fechar">Fechar</button>`
+      : `<button class="btn btn-primary" id="alertas-fechar">Fechar</button>`,
     onMount: () => {
       document.getElementById("alertas-fechar").onclick = closeModal;
+      const btnEnviar = document.getElementById("alertas-enviar-email");
+      if (btnEnviar) btnEnviar.onclick = () => { closeModal(); abrirEnvioAlertas(entregas, stakeholders, vinculosPorEntrega); };
       document.querySelectorAll('[data-action="copiar-alerta"]').forEach((btn) => {
         btn.onclick = async () => {
           const g = grupos[Number(btn.dataset.idx)];
@@ -1518,6 +1523,180 @@ function montarResumoAlertaHtml(stakeholder, itens) {
       ${itens.map(linha).join("")}
     </table>
   </div>`;
+}
+// ==== ENVIO DE ALERTAS DIRETO DO NAVEGADOR (Microsoft Graph, sem servidor) ====
+// A tentativa de mandar isso automaticamente pelo Supabase esbarrou num
+// bloqueio de rede da TI (a Microsoft recusa o pedido de token vindo dos
+// servidores do Supabase). Enviando direto do navegador da usuária logada,
+// a chamada sai da mesma rede/sessão de sempre — sem esse bloqueio, e sem
+// precisar guardar nenhum segredo (o navegador nunca vê client secret,
+// só o client_id, que é público em apps deste tipo).
+let msalInstance = null;
+let msalInitPromise = null;
+function obterMsal() {
+  if (!msalInstance) {
+    msalInstance = new msal.PublicClientApplication({
+      auth: {
+        clientId: window.PMO_CONFIG.GRAPH_CLIENT_ID,
+        authority: `https://login.microsoftonline.com/${window.PMO_CONFIG.GRAPH_TENANT_ID}`,
+        redirectUri: window.location.origin + window.location.pathname,
+      },
+      cache: { cacheLocation: "sessionStorage" },
+    });
+    msalInitPromise = msalInstance.initialize();
+  }
+  return msalInitPromise;
+}
+async function obterTokenGraphNoNavegador() {
+  await obterMsal();
+  const scopes = ["Mail.Send"];
+  const contas = msalInstance.getAllAccounts();
+  if (contas.length) {
+    try {
+      const resp = await msalInstance.acquireTokenSilent({ scopes, account: contas[0] });
+      return resp.accessToken;
+    } catch { /* cai pro popup abaixo */ }
+  }
+  const resp = await msalInstance.loginPopup({ scopes });
+  msalInstance.setActiveAccount(resp.account);
+  return resp.accessToken;
+}
+function alertaDestSuggestions(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const jaAdicionados = new Set(state.alertaDestinatarios.map((d) => d.email.toLowerCase()));
+  return state.stakeholdersAll
+    .filter((s) => !jaAdicionados.has(s.email.toLowerCase()))
+    .filter((s) => s.nome.toLowerCase().includes(q) || s.email.toLowerCase().includes(q))
+    .slice(0, 8);
+}
+function addAlertaDest(item) {
+  if (state.alertaDestinatarios.some((d) => d.email.toLowerCase() === item.email.toLowerCase())) return;
+  state.alertaDestinatarios.push(item);
+  renderAlertaDestChips();
+}
+function removeAlertaDest(email) {
+  state.alertaDestinatarios = state.alertaDestinatarios.filter((d) => d.email !== email);
+  renderAlertaDestChips();
+}
+function renderAlertaDestChips() {
+  const wrap = document.getElementById("alerta-dest-chips-wrap");
+  if (!wrap) return;
+  wrap.innerHTML = state.alertaDestinatarios.map((d) => `
+    <span class="chip">${esc(d.nome || d.email)}<button type="button" class="chip-x" data-email="${esc(d.email)}">&times;</button></span>
+  `).join("");
+  wrap.querySelectorAll(".chip-x").forEach((btn) => (btn.onclick = () => removeAlertaDest(btn.dataset.email)));
+}
+function wireAlertaDestInput() {
+  const input = document.getElementById("alerta-dest-input");
+  const sugBox = document.getElementById("alerta-dest-suggestions");
+  if (!input) return;
+  const esconderSugestoes = () => { sugBox.classList.add("hidden"); sugBox.innerHTML = ""; };
+  input.oninput = () => {
+    const sugs = alertaDestSuggestions(input.value);
+    if (!sugs.length) return esconderSugestoes();
+    sugBox.classList.remove("hidden");
+    sugBox.innerHTML = sugs.map((s) => `
+      <div class="chip-suggestion-item" data-email="${esc(s.email)}" data-nome="${esc(s.nome)}" data-sid="${s.id}">
+        <span>${esc(s.nome)}</span><span class="muted small">${esc(s.email)}</span>
+      </div>`).join("");
+    sugBox.querySelectorAll(".chip-suggestion-item").forEach((el) => (el.onclick = () => {
+      addAlertaDest({ email: el.dataset.email, nome: el.dataset.nome, stakeholder_id: el.dataset.sid });
+      input.value = ""; esconderSugestoes();
+    }));
+  };
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const v = input.value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return;
+      const match = state.stakeholdersAll.find((s) => s.email.toLowerCase() === v.toLowerCase());
+      addAlertaDest(match ? { email: match.email, nome: match.nome, stakeholder_id: match.id } : { email: v, nome: v, stakeholder_id: null });
+      input.value = ""; esconderSugestoes();
+    } else if (e.key === "Escape") { esconderSugestoes(); }
+  };
+  document.addEventListener("click", (e) => { if (!e.target.closest("#alerta-dest-chips")) esconderSugestoes(); });
+}
+// Abre a prévia de UM e-mail só, com todos os stakeholders relevantes juntos
+// como destinatários — diferente do "Copiar resumo" (que é por pessoa), este
+// realmente envia, direto do navegador, via Microsoft Graph.
+async function abrirEnvioAlertas(entregas, stakeholders, vinculosPorEntrega) {
+  const relevantes = stakeholders.filter((st) =>
+    entregas.some((e) => {
+      if (e.projeto_id !== st.projeto_id) return false;
+      const especificos = vinculosPorEntrega[e.id];
+      return !especificos || especificos.size === 0 || especificos.has(st.id);
+    })
+  );
+  state.alertaDestinatarios = relevantes.map((s) => ({ email: s.email, nome: s.nome, stakeholder_id: s.id }));
+  if (!state.stakeholdersAll.length) await loadStakeholdersAllCache();
+
+  const linha = (e) => `<tr>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.projetos?.nome || "-")}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.titulo)}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${fmtDate(e.data_prazo)}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${label(e.situacao_calculada)}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.perfis?.nome || "-")}</td>
+    </tr>`;
+  const htmlConteudo = `<div style="font-family:sans-serif;color:#222;">
+    <p>Segue o resumo do que precisa de atenção agora:</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr style="background:#f5f5f5;"><th style="padding:8px;text-align:left;">Projeto</th><th style="padding:8px;text-align:left;">Entrega</th><th style="padding:8px;text-align:left;">Prazo</th><th style="padding:8px;text-align:left;">Situação</th><th style="padding:8px;text-align:left;">Responsável</th></tr>
+      ${entregas.map(linha).join("")}
+    </table>
+  </div>`;
+  const assunto = `Alertas de prazo — ${entregas.length} item(ns) precisam de atenção`;
+
+  openModal({
+    title: "Enviar alertas por e-mail",
+    bodyHtml: `
+      <div class="field">
+        <label>Destinatários (pode adicionar mais de um)</label>
+        <div class="chip-input" id="alerta-dest-chips">
+          <div class="chips-wrap" id="alerta-dest-chips-wrap"></div>
+          <input type="text" id="alerta-dest-input" placeholder="Digite um nome ou e-mail cadastrado, ou um e-mail novo e aperte Enter..." autocomplete="off" />
+          <div class="chip-suggestions hidden" id="alerta-dest-suggestions"></div>
+        </div>
+      </div>
+      <div class="field"><label>Assunto</label><input id="alerta-assunto" value="${esc(assunto)}" /></div>
+      <p class="small muted" style="margin:8px 0;">Vai sair um e-mail só, com todos os destinatários acima juntos — enviado direto da sua conta Microsoft (pode pedir pra você confirmar o login).</p>
+      <div id="alerta-html-preview" style="border:1px solid var(--border);border-radius:10px;padding:14px;background:#fff;max-height:280px;overflow:auto;">${htmlConteudo}</div>
+    `,
+    footerHtml: `<button class="btn btn-ghost" id="alerta-cancel">Cancelar</button><button class="btn btn-primary" id="alerta-enviar">✉ Enviar agora</button>`,
+    onMount: () => {
+      renderAlertaDestChips();
+      wireAlertaDestInput();
+      document.getElementById("alerta-cancel").onclick = closeModal;
+      document.getElementById("alerta-enviar").onclick = async () => {
+        if (!state.alertaDestinatarios.length) return toast("Adicione ao menos um destinatário.", "err");
+        const btn = document.getElementById("alerta-enviar");
+        const textoOriginal = btn.textContent;
+        btn.disabled = true; btn.textContent = "Enviando...";
+        try {
+          const accessToken = await obterTokenGraphNoNavegador();
+          const assuntoAtual = document.getElementById("alerta-assunto").value;
+          const resp = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: {
+                subject: assuntoAtual,
+                body: { contentType: "HTML", content: htmlConteudo },
+                toRecipients: state.alertaDestinatarios.map((d) => ({ emailAddress: { address: d.email, name: d.nome } })),
+              },
+              saveToSentItems: true,
+            }),
+          });
+          if (!resp.ok) throw new Error(`Microsoft respondeu ${resp.status}: ${await resp.text()}`);
+          toast("E-mail de alertas enviado!");
+          closeModal();
+        } catch (err) {
+          toast("Não consegui enviar: " + err.message, "err");
+          btn.disabled = false; btn.textContent = textoOriginal;
+        }
+      };
+    },
+  });
 }
 function abrirModalKpi(titulo, tipo, itens) {
   const linhas = tipo === "projetos"
