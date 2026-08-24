@@ -1557,7 +1557,10 @@ async function obterTokenGraphNoNavegador() {
       return resp.accessToken;
     } catch { /* cai pro popup abaixo */ }
   }
-  const resp = await msalInstance.loginPopup({ scopes });
+  // loginHint força a Microsoft a autenticar com ESTA conta específica — sem
+  // isso, se o navegador já tiver outra conta Microsoft logada (pessoal ou
+  // de outra empresa), o login automático pode escolher a errada sem avisar.
+  const resp = await msalInstance.loginPopup({ scopes, loginHint: "juliana.lobao@bioxxi.com.br", prompt: "select_account" });
   msalInstance.setActiveAccount(resp.account);
   return resp.accessToken;
 }
