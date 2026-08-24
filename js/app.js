@@ -1637,7 +1637,9 @@ async function abrirEnvioAlertas(entregas, stakeholders, vinculosPorEntrega) {
       <td style="padding:8px;border-bottom:1px solid #eee;">${fmtDate(e.data_prazo)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${label(e.situacao_calculada)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.perfis?.nome || "-")}</td>
-    </tr>`;
+    </tr>${e.observacoes ? `<tr>
+      <td colspan="5" style="padding:0 8px 8px;border-bottom:1px solid #eee;color:#666;font-size:12px;font-style:italic;">${esc(e.observacoes)}</td>
+    </tr>` : ""}`;
   const htmlConteudo = `<div style="font-family:sans-serif;color:#222;">
     <p>Segue o resumo do que precisa de atenção agora:</p>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
