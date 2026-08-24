@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PMO Dashboard</title>
+<link rel="stylesheet" href="css/style.css" />
+<script>
+  // Aplica o tema salvo ANTES de pintar a página, pra não dar "flash" da cor errada.
+  document.documentElement.setAttribute("data-theme", localStorage.getItem("pmo_tema") || "dark");
+</script>
+<script src="js/config.js"></script>
+</head>
+<body>
+
+<div id="toast-wrap"></div>
+<div id="demo-banner" class="hidden">🧪 Modo de demonstração — dados fictícios, nada aqui é salvo de verdade. <a href="index.html">Sair do modo demo</a></div>
+
+<!-- ===================== LOGIN ===================== -->
+<div id="login-screen">
+  <div class="login-card">
+    <img src="assets/logo.png" alt="Logo" class="brand-logo brand-logo-login" onerror="this.style.display='none'" />
+    <div class="login-logo">PMO Dashboard</div>
+    <div class="login-sub">Controle de projetos, prazos e entregas</div>
+    <form id="login-form">
+      <div class="field">
+        <label>E-mail</label>
+        <input type="email" id="login-email" autocomplete="username" required />
+      </div>
+      <div class="field">
+        <label>Senha</label>
+        <input type="password" id="login-password" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="btn-login">Entrar</button>
+      <div class="error-text" id="login-error"></div>
+    </form>
+    <div class="hint-text">O primeiro login do sistema vira administrador automaticamente. Para criar novos acessos, use a criação de usuário no painel do Supabase (Authentication → Add user) e depois defina o papel em Configurações.</div>
+  </div>
+</div>
+
+<!-- ===================== APP ===================== -->
+<div id="app-shell" class="hidden">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><img src="assets/logo.png" alt="Logo" class="brand-logo brand-logo-sidebar" onerror="this.style.display='none'" />PMO Dashboard</div>
+    <nav id="nav-list">
+      <div class="nav-item active" data-tab="visao-geral"><span class="ic">◆</span> Visão Geral</div>
+      <div class="nav-item" data-tab="projetos"><span class="ic">▣</span> Projetos</div>
+      <div class="nav-item" data-tab="entregas"><span class="ic">◷</span> Entregas &amp; Prazos</div>
+      <div class="nav-item" data-tab="kanban"><span class="ic">▤</span> Sprints / Kanban</div>
+      <div class="nav-item" data-tab="calendario"><span class="ic">▦</span> Calendário</div>
+      <div class="nav-item" data-tab="checkpoints"><span class="ic">✓</span> Checkpoints</div>
+      <div class="nav-item" data-tab="anexos"><span class="ic">▥</span> Anexos</div>
+      <div class="nav-item" data-tab="stakeholders"><span class="ic">✉</span> Stakeholders</div>
+      <div class="nav-item admin-only" data-tab="config" data-role="admin"><span class="ic">⚙</span> Configurações</div>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn btn-ghost btn-block btn-sm" id="btn-alertas" style="justify-content:space-between;margin-bottom:8px;">
+        <span>🔔 Alertas</span><span class="badge badge-atrasado hidden" id="alertas-badge" style="min-width:20px;justify-content:center;">0</span>
+      </button>
+      <div class="user-chip">
+        <div class="avatar" id="user-avatar">?</div>
+        <div class="user-meta">
+          <div class="user-name" id="user-name">—</div>
+          <div class="user-role" id="user-role">—</div>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-block btn-sm" id="btn-theme-toggle" style="margin-top:10px;">🌙 Tema escuro</button>
+      <button class="btn btn-ghost btn-block btn-sm" id="btn-logout" style="margin-top:8px;">Sair</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <div class="page-title" id="page-title">Visão Geral</div>
+        <div class="page-sub" id="page-sub">Resumo de todos os projetos</div>
+      </div>
+      <div class="topbar-actions" id="topbar-actions"></div>
+    </div>
+
+    <!-- Visão Geral -->
+    <section class="tab-panel active" id="tab-visao-geral">
+      <div class="filters-bar">
+        <select id="vg-filtro-projeto"><option value="">Todos os projetos</option></select>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-card accent-cyan" id="kpi-card-projetos-ativos" style="cursor:pointer;"><div class="kpi-label">Projetos ativos</div><div class="kpi-value" id="kpi-projetos-ativos">–</div></div>
+        <div class="kpi-card accent-green" id="kpi-card-no-prazo" style="cursor:pointer;"><div class="kpi-label">No prazo</div><div class="kpi-value" id="kpi-no-prazo">–</div></div>
+        <div class="kpi-card accent-yellow" id="kpi-card-em-risco" style="cursor:pointer;"><div class="kpi-label">Em risco</div><div class="kpi-value" id="kpi-em-risco">–</div></div>
+        <div class="kpi-card accent-red" id="kpi-card-atrasadas" style="cursor:pointer;"><div class="kpi-label">Atrasadas</div><div class="kpi-value" id="kpi-atrasadas">–</div></div>
+        <div class="kpi-card accent-purple" id="kpi-card-entregues" style="cursor:pointer;"><div class="kpi-label">Entregues</div><div class="kpi-value" id="kpi-entregues">–</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Status dos projetos</div>
+        <canvas id="chart-status-projetos" height="70"></canvas>
+      </div>
+      <div class="flex gap-12" style="align-items:stretch;flex-wrap:wrap;">
+        <div class="card" style="flex:1 1 0;min-width:0;">
+          <div class="card-title">Em andamento, por área</div>
+          <canvas id="chart-em-andamento" height="90"></canvas>
+          <div id="chart-em-andamento-vazio" class="small muted hidden" style="text-align:center;padding:20px 0;">Nada em andamento agora.</div>
+        </div>
+        <div class="card" style="flex:1 1 0;min-width:0;">
+          <div class="card-title">Em atraso, por área</div>
+          <canvas id="chart-em-atraso" height="90"></canvas>
+          <div id="chart-em-atraso-vazio" class="small muted hidden" style="text-align:center;padding:20px 0;">Nada atrasado agora. 🎉</div>
+        </div>
+        <div class="card" style="flex:1 1 0;min-width:0;">
+          <div class="card-title">Concluídas, por área</div>
+          <canvas id="chart-concluidas" height="90"></canvas>
+          <div id="chart-concluidas-vazio" class="small muted hidden" style="text-align:center;padding:20px 0;">Nada concluído ainda.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Entregas que precisam de atenção</div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-atencao">
+            <thead><tr><th>Projeto</th><th>Entrega</th><th>Prazo previsto</th><th>Situação</th><th>Responsável</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Projetos -->
+    <section class="tab-panel" id="tab-projetos">
+      <div class="filters-bar">
+        <input type="search" id="proj-busca" placeholder="Buscar projeto..." list="proj-busca-lista" autocomplete="off" />
+        <datalist id="proj-busca-lista"></datalist>
+        <select id="proj-filtro-status">
+          <option value="">Todos os status</option>
+          <option value="iniciacao">Iniciação</option>
+          <option value="planejado">Planejado</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="pausado">Pausado</option>
+          <option value="concluido">Concluído</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+        <button class="btn btn-primary" id="btn-novo-projeto" style="margin-left:auto;">+ Novo Projeto</button>
+      </div>
+      <div class="projects-grid" id="projects-grid"></div>
+    </section>
+
+    <!-- Entregas & Prazos -->
+    <section class="tab-panel" id="tab-entregas">
+      <div class="filters-bar">
+        <select id="ent-filtro-projeto"><option value="">Todos os projetos</option></select>
+        <select id="ent-filtro-situacao">
+          <option value="">Todas as situações</option>
+          <option value="atrasado">Atrasado</option>
+          <option value="em_risco">Em risco</option>
+          <option value="no_prazo">No prazo</option>
+          <option value="concluido">Concluído</option>
+        </select>
+        <button class="btn btn-primary" id="btn-nova-entrega" style="margin-left:auto;">+ Nova Entrega</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="table-entregas">
+          <thead><tr><th>Projeto</th><th>Entrega</th><th>Tipo</th><th>Prazo previsto</th><th>Prazo real</th><th>Situação</th><th>Status</th><th>Responsável</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Sprints / Kanban -->
+    <section class="tab-panel" id="tab-kanban">
+      <div class="kanban-toolbar">
+        <select id="kan-filtro-projeto"><option value="">Selecione um projeto...</option></select>
+        <div class="subtabs" style="border-bottom:none;margin-bottom:0;">
+          <button class="subtab-item active" data-subtab="sprints">Sprints</button>
+          <button class="subtab-item" data-subtab="board">Kanban</button>
+        </div>
+      </div>
+
+      <!-- Sub-aba: planejamento das sprints -->
+      <div class="subtab-panel" id="subtab-sprints">
+        <div class="flex" style="justify-content:flex-end;margin-bottom:14px;">
+          <button class="btn btn-ghost btn-sm" id="btn-nova-sprint">+ Sprint</button>
+        </div>
+        <div class="kanban-sprints-lista" id="kanban-sprints-lista"></div>
+      </div>
+
+      <!-- Sub-aba: execução (quadro) -->
+      <div class="subtab-panel hidden" id="subtab-board">
+        <div class="kanban-toolbar">
+          <select id="kan-filtro-sprint"><option value="">Todas as tarefas</option></select>
+          <button class="btn btn-primary btn-sm" id="btn-nova-tarefa" style="margin-left:auto;">+ Tarefa</button>
+        </div>
+        <div class="kanban-board" id="kanban-board">
+          <div class="kanban-col" data-status="backlog"><div class="kanban-col-head"><span>Backlog</span><span class="count" data-count="backlog">0</span></div><div class="kanban-list" id="kcol-backlog"></div></div>
+          <div class="kanban-col" data-status="todo"><div class="kanban-col-head"><span>A fazer</span><span class="count" data-count="todo">0</span></div><div class="kanban-list" id="kcol-todo"></div></div>
+          <div class="kanban-col" data-status="em_andamento"><div class="kanban-col-head"><span>Em andamento</span><span class="count" data-count="em_andamento">0</span></div><div class="kanban-list" id="kcol-em_andamento"></div></div>
+          <div class="kanban-col" data-status="em_revisao"><div class="kanban-col-head"><span>Em revisão</span><span class="count" data-count="em_revisao">0</span></div><div class="kanban-list" id="kcol-em_revisao"></div></div>
+          <div class="kanban-col" data-status="concluido"><div class="kanban-col-head"><span>Concluído</span><span class="count" data-count="concluido">0</span></div><div class="kanban-list" id="kcol-concluido"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Calendário -->
+    <section class="tab-panel" id="tab-calendario">
+      <div id="calendario-el"></div>
+    </section>
+
+    <!-- Checkpoints -->
+    <section class="tab-panel" id="tab-checkpoints">
+      <div class="filters-bar">
+        <select id="chk-filtro-projeto"><option value="">Todos os projetos</option></select>
+        <button class="btn btn-primary" id="btn-novo-checkpoint" style="margin-left:auto;">+ Novo Checkpoint</button>
+      </div>
+      <p class="muted small" style="margin-top:-10px;margin-bottom:16px;">Resumo estruturado de reuniões — gerado automaticamente a partir do Teams (quando configurado) ou digitado manualmente aqui.</p>
+      <div id="checkpoints-lista"></div>
+    </section>
+
+    <!-- Anexos -->
+    <section class="tab-panel" id="tab-anexos">
+      <div class="filters-bar">
+        <select id="anex-filtro-projeto"><option value="">Selecione um projeto...</option></select>
+      </div>
+      <div class="attach-dropzone" id="attach-dropzone">
+        📎 Arraste um arquivo/print aqui ou clique para enviar
+        <input type="file" id="attach-input" class="hidden" />
+      </div>
+      <div class="attach-grid" id="attach-grid"></div>
+    </section>
+
+    <!-- Stakeholders -->
+    <section class="tab-panel" id="tab-stakeholders">
+      <div class="filters-bar">
+        <select id="stake-filtro-projeto"><option value="">Todos os projetos</option></select>
+        <button class="btn btn-primary" id="btn-novo-stakeholder" style="margin-left:auto;">+ Stakeholder</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="table-stakeholders">
+          <thead><tr><th>Nome</th><th>E-mail</th><th>Projeto</th><th>Cargo</th><th>O que precisa fazer / observações</th><th>Digest diário</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Report executivo (CEO)</div>
+        <p class="muted small" style="margin-top:-6px;margin-bottom:14px;">Gera um resumo com status, o que já foi entregue, próximo marco e pendências — pronto para enviar por e-mail (para um ou mais destinatários) ou exportar em XLS.</p>
+        <div class="filters-bar">
+          <select id="report-projeto"><option value="">Selecione o projeto...</option></select>
+        </div>
+        <div class="field" style="max-width:520px;">
+          <label>Destinatários (pode adicionar mais de um)</label>
+          <div class="chip-input" id="report-dest-chips">
+            <div class="chips-wrap" id="report-dest-chips-wrap"></div>
+            <input type="text" id="report-dest-input" placeholder="Digite um nome ou e-mail cadastrado, ou um e-mail novo e aperte Enter..." autocomplete="off" />
+            <div class="chip-suggestions hidden" id="report-dest-suggestions"></div>
+          </div>
+        </div>
+        <div class="filters-bar" style="margin-top:14px;">
+          <button class="btn btn-ghost" id="btn-report-xls">⭳ Exportar XLS</button>
+          <button class="btn btn-primary" id="btn-report-email">✉ Gerar e-mail</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Histórico de notificações</div>
+        <div class="table-wrap">
+          <table class="data-table" id="table-notificacoes">
+            <thead><tr><th>Data</th><th>Tipo</th><th>Destinatário</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Configurações -->
+    <section class="tab-panel" id="tab-config">
+      <div class="card">
+        <div class="card-title">Regras de risco e envio automático</div>
+        <div class="form-row">
+          <div class="field"><label>Dias de antecedência para "em risco"</label><input type="number" id="cfg-dias-risco" min="0" /></div>
+          <div class="field"><label>Digest automático ativo</label>
+            <select id="cfg-digest-ativo"><option value="true">Sim</option><option value="false">Não</option></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Nome do remetente dos e-mails</label><input id="cfg-remetente-nome" /></div>
+          <div class="field"><label>E-mail do remetente (só exibição — deve ser igual ao SMTP_USER configurado no servidor)</label><input id="cfg-remetente-email" /></div>
+        </div>
+        <button class="btn btn-primary" id="btn-salvar-config">Salvar configurações</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Usuários e papéis</div>
+        <p class="muted small" style="margin-top:-6px;margin-bottom:14px;">
+          Para convidar alguém, crie o acesso em Supabase → Authentication → Add user com o e-mail da pessoa.
+          No primeiro login dela, o nome aparece aqui automaticamente — aí você só escolhe o papel.
+        </p>
+        <div class="table-wrap">
+          <table class="data-table" id="table-usuarios">
+            <thead><tr><th>Nome</th><th>Papel</th><th>Ativo</th><th>Projetos (se colaborador)</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal-root"></div>
+<div id="global-loading" class="hidden"><div class="spinner"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://alcdn.msauth.net/browser/3.7.0/js/msal-browser.min.js"></script>
+<!-- Scripts "clássicos" (sem type="module") de propósito — assim a tela também
+     abre direto com duplo-clique no arquivo (file://), sem precisar de servidor. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/mockSupabase.js"></script>
+<script src="js/supabaseClient.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
