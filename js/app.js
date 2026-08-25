@@ -1652,7 +1652,8 @@ async function abrirEnvioAlertas(entregas, stakeholders, vinculosPorEntrega) {
       ${entregas.map(linha).join("")}
     </table>
   </div>`;
-  const assunto = `Alertas de prazo — ${entregas.length} item(ns) precisam de atenção`;
+  const projetosUnicos = [...new Set(entregas.map((e) => e.projetos?.nome).filter(Boolean))];
+  const assunto = `Alertas de prazo — ${projetosUnicos.join(", ")} — ${entregas.length} item(ns) precisam de atenção`;
 
   openModal({
     title: "Enviar alertas por e-mail",
