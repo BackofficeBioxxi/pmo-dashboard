@@ -1514,7 +1514,9 @@ function montarResumoAlertaHtml(stakeholder, itens) {
       <td style="padding:8px;border-bottom:1px solid #eee;">${fmtDate(e.data_prazo)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${label(e.situacao_calculada)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.perfis?.nome || "-")}</td>
-    </tr>`;
+    </tr>${e.observacoes ? `<tr>
+      <td colspan="5" style="padding:0 8px 8px;border-bottom:1px solid #eee;color:#666;font-size:12px;font-style:italic;">${esc(e.observacoes)}</td>
+    </tr>` : ""}`;
   return `<div style="font-family:sans-serif;color:#222;">
     <p>Olá, ${esc(stakeholder.nome)},</p>
     <p>Segue um resumo do que precisa de atenção agora:</p>
