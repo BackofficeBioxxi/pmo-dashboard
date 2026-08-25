@@ -1514,7 +1514,9 @@ function montarResumoAlertaHtml(stakeholder, itens) {
       <td style="padding:8px;border-bottom:1px solid #eee;">${fmtDate(e.data_prazo)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${label(e.situacao_calculada)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.perfis?.nome || "-")}</td>
-    </tr>`;
+    </tr>${e.observacoes ? `<tr>
+      <td colspan="5" style="padding:0 8px 8px;border-bottom:1px solid #eee;color:#666;font-size:12px;font-style:italic;">${esc(e.observacoes)}</td>
+    </tr>` : ""}`;
   return `<div style="font-family:sans-serif;color:#222;">
     <p>Olá, ${esc(stakeholder.nome)},</p>
     <p>Segue um resumo do que precisa de atenção agora:</p>
@@ -1557,7 +1559,10 @@ async function obterTokenGraphNoNavegador() {
       return resp.accessToken;
     } catch { /* cai pro popup abaixo */ }
   }
-  const resp = await msalInstance.loginPopup({ scopes });
+  // loginHint força a Microsoft a autenticar com ESTA conta específica — sem
+  // isso, se o navegador já tiver outra conta Microsoft logada (pessoal ou
+  // de outra empresa), o login automático pode escolher a errada sem avisar.
+  const resp = await msalInstance.loginPopup({ scopes, loginHint: "juliana.lobao@bioxxi.com.br", prompt: "select_account" });
   msalInstance.setActiveAccount(resp.account);
   return resp.accessToken;
 }
@@ -1637,7 +1642,9 @@ async function abrirEnvioAlertas(entregas, stakeholders, vinculosPorEntrega) {
       <td style="padding:8px;border-bottom:1px solid #eee;">${fmtDate(e.data_prazo)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${label(e.situacao_calculada)}</td>
       <td style="padding:8px;border-bottom:1px solid #eee;">${esc(e.perfis?.nome || "-")}</td>
-    </tr>`;
+    </tr>${e.observacoes ? `<tr>
+      <td colspan="5" style="padding:0 8px 8px;border-bottom:1px solid #eee;color:#666;font-size:12px;font-style:italic;">${esc(e.observacoes)}</td>
+    </tr>` : ""}`;
   const htmlConteudo = `<div style="font-family:sans-serif;color:#222;">
     <p>Segue o resumo do que precisa de atenção agora:</p>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
